@@ -1,0 +1,190 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Order tracking</title>
+  <link rel="stylesheet" href="style.css">
+  <style>
+    body{font-family:system-ui,Segoe UI,Roboto,Arial; margin:0; padding:12px; background:#f7f9fb}
+    .card{background:#fff;border-radius:8px;padding:12px;box-shadow:0 6px 18px rgba(0,0,0,0.06); max-width:900px;margin:10px auto}
+    .btn{display:inline-block;padding:8px 10px;border-radius:6px;border:0;cursor:pointer}
+    .btn-primary{background:#0b74ff;color:#fff}
+    #map{height:60vh;border-radius:8px;overflow:hidden}
+  </style>
+</head>
+<body>
+  <header>
+    <div class="container">
+      <div class="logo">
+        <img src="img/logo.png" alt="Foodie Delight Logo" />
+        <h1>Foodie Delight</h1>
+      </div>
+      <nav>
+        <ul class="nav-links">
+          <li><a href="index.html">Home</a></li>
+          <li><a href="menu.html">Menu</a></li>
+          <li><a href="about.html">About</a></li>
+          <li><a href="contact.html">Contact</a></li>
+          <li><a href="#" id="cartLink">Cart <span class="cart-count">0</span></a></li>
+          <li><a href="order-track.html" class="active">tracking</a></li>
+
+
+          <!-- Visitor order history & profile (always created but content toggled by script) -->
+          <li><a href="#" id="orderHistoryLink">Orders</a></li>
+          <li><a href="#" id="profileLink">Login</a></li>
+  
+          <!-- Admin Link and Bell — inserted and hidden by JS, shown only for admin -->
+          <li><a href="#" id="adminLink" style="display:none;">Admin</a></li>
+          <!-- <li><a href="#" id="orderBell" style="display:none;"><i class="fa fa-bell"></i> <span id="orderBellCount" class="cart-count">0</span></a></li> -->
+        </ul>
+      </nav>
+    </div>
+  </header>
+  <div class="card" id="mainCard">
+    <h2>Order tracking</h2>
+    <div id="status">Loading order...</div>
+    <div style="margin-top:10px;">
+      <button id="btnShareLocation" class="btn btn-primary">I'm the customer — Share my location</button>
+      <button id="btnStartDelivery" class="btn" style="margin-left:8px;">I'm the rider — Start delivery</button>
+    </div>
+  </div>
+
+  <div class="card" id="mapCard" style="display:none">
+    <h3>Map</h3>
+    <div id="map">Map will appear here</div>
+  </div>
+  <!-- Cart Modal -->
+  <div class="cart-modal" id="cartModal">
+    <div class="cart-content">
+      <div class="cart-header">
+        <h2>Your Cart</h2>
+        <span class="close-btn" id="closeCart">&times;</span>
+      </div>
+      <div class="cart-body">
+        <div id="cartItems">
+          <p class="empty-cart-message">Your cart is empty</p>
+        </div>
+        <div class="cart-footer">
+          <div class="cart-total">
+            <h3>Total: $<span id="cartTotal">0.00</span></h3>
+          </div>
+          <button class="btn-primary checkout-btn" id="checkoutBtn">Checkout</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  
+  <script type="module" src="/path/to/database.js"></script>
+  <script src="order-track-loader.js"></script>
+  <script src="script.js"></script>
+
+  <script>
+    const params = new URLSearchParams(window.location.search);
+    const orderId = params.get('id');
+
+    async function fetchOrder() {
+      if (!orderId) return null;
+      // Try server helper first
+      if (window.FirebaseDB && typeof window.FirebaseDB.getOrder === 'function') {
+        try {
+          const r = await window.FirebaseDB.getOrder(orderId);
+          if (r && r.success) return r.order;
+        } catch(e){ console.warn('getOrder failed', e); }
+      }
+      // fallback: try find it from localStorage (visitor's browser)
+      try {
+        const localOrders = JSON.parse(localStorage.getItem('orders') || '[]');
+        const found = localOrders.find(o => String(o.localId || o.remoteId || o.id || '') === String(orderId));
+        if (found) return found;
+      } catch(e){ }
+      return null;
+    }
+
+    function showOrderInfo(o) {
+      const statusEl = document.getElementById('status');
+      if (!o) { statusEl.innerHTML = `<div style="color:#b00">Order ${orderId} not found.</div>`; return; }
+      statusEl.innerHTML = `
+        <div><strong>Order:</strong> ${o.id || o.localId || orderId}</div>
+        <div><strong>Customer:</strong> ${o.visitorName || '—'} • ${o.phone || '—'}</div>
+        <div><strong>District / Area:</strong> ${o.district || '—'} / ${o.area || '—'}</div>
+        <div><strong>Total:</strong> $${(o.total||0).toFixed(2)} • <strong>Status:</strong> ${(o.status||'pending')}</div>
+        <div style="margin-top:8px; font-size:13px; color:#666;">When you tap a button the browser will request location permission and then start sharing your coords to the server.</div>
+      `;
+      // if clientLocation exists show map
+      if (o.clientLocation && o.clientLocation.lat && o.clientLocation.lng) {
+        showMap(o.clientLocation.lat, o.clientLocation.lng, 'Customer');
+      }
+    }
+
+    function showMap(lat, lng, title='Location') {
+      document.getElementById('mapCard').style.display = 'block';
+      const frame = document.getElementById('map');
+      const url = `https://www.google.com/maps?q=${lat},${lng}&z=16&output=embed`;
+      frame.innerHTML = `<iframe src="${url}" style="width:100%; height:100%; border:0"></iframe>`;
+    }
+
+    // Customer button: prompts and shares location
+    document.getElementById('btnShareLocation').addEventListener('click', async () => {
+      if (!navigator.geolocation) return alert('Geolocation not supported');
+      navigator.geolocation.getCurrentPosition(async (pos) => {
+        const lat = pos.coords.latitude, lng = pos.coords.longitude;
+        // local update
+        try {
+          const localOrders = JSON.parse(localStorage.getItem('orders') || '[]');
+          const idx = localOrders.findIndex(lo => String(lo.localId || lo.remoteId || lo.id || '') === String(orderId));
+          if (idx !== -1) {
+            localOrders[idx].clientLocation = { lat, lng, ts: Date.now() };
+            localStorage.setItem('orders', JSON.stringify(localOrders));
+          }
+        } catch(e){}
+
+        // server update
+        if (window.FirebaseDB && typeof window.FirebaseDB.updateOrderLocation === 'function') {
+          try {
+            await window.FirebaseDB.updateOrderLocation(orderId, { lat, lng });
+          } catch(e){ console.warn('updateOrderLocation failed', e); }
+        }
+        showMap(lat, lng, 'Customer');
+        alert('Your location was shared. The rider will see it.');
+      }, (err) => {
+        alert('Unable to get location — please allow location permission.');
+      }, { enableHighAccuracy:true, timeout:15000 });
+    });
+
+    // Rider button: starts continuous watch and pushes coordinates to server
+    let deliveryWatchId = null;
+    document.getElementById('btnStartDelivery').addEventListener('click', async () => {
+      if (!navigator.geolocation) return alert('Geolocation not supported');
+      if (!window.FirebaseDB || typeof window.FirebaseDB.updateDeliveryLocation !== 'function') {
+        if (!confirm('Server helper not available. You can still share your coords manually by texting them. Continue?')) return;
+      }
+      if (deliveryWatchId !== null) return alert('Already sharing location');
+
+      deliveryWatchId = navigator.geolocation.watchPosition(async (pos) => {
+        const lat = pos.coords.latitude, lng = pos.coords.longitude;
+        // push to server helper if exists
+        if (window.FirebaseDB && typeof window.FirebaseDB.updateDeliveryLocation === 'function') {
+          try { await window.FirebaseDB.updateDeliveryLocation(orderId, { lat, lng }); } catch(e){ console.warn('updateDeliveryLocation failed', e); }
+        } else {
+          // fallback: store in localStorage (only visible on this phone)
+          localStorage.setItem('delivery_' + orderId, JSON.stringify({ lat, lng, ts: Date.now() }));
+        }
+        // show rider position on map (prefer showing customer + rider both in admin; here we show rider)
+        showMap(lat, lng, 'Rider (you)');
+      }, (err) => {
+        console.warn('watchPosition error', err);
+        alert('Unable to watch position. Please allow location and ensure GPS is ON.');
+      }, { enableHighAccuracy:true, maximumAge:2000, timeout:10000 });
+
+      alert('Delivery location sharing started. You can close this page — position keeps updating while the page is open.');
+    });
+
+    // load order then show
+    (async function init() {
+      const order = await fetchOrder();
+      showOrderInfo(order);
+    })();
+  </script>
+</body>
+</html>

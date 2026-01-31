@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Contact — Foodie Delight</title>
+  <link rel="stylesheet" href="style.css" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
+  <style>
+    /* Minimal inline styles to make the contact page readable even if your style.css differs */
+    .contact-page { padding: 36px 0; }
+    .contact-header { text-align:center; margin-bottom:18px; }
+    .contact-grid { display:grid; grid-template-columns: 1fr 380px; gap:20px; align-items:start; }
+    .contact-form { background:#fff; padding:18px; border-radius:10px; box-shadow:0 6px 20px rgba(0,0,0,0.06); }
+    .contact-info { background:#fafafa; padding:18px; border-radius:10px; }
+    .form-group { margin-bottom:12px; }
+    label { display:block; font-weight:600; margin-bottom:6px; }
+    input[type="text"], input[type="email"], textarea { width:100%; padding:10px; border-radius:6px; border:1px solid #ddd; }
+    textarea { min-height:120px; resize:vertical; }
+    .btn-primary { background:#1e7be0; color:white; padding:10px 14px; border-radius:8px; border:none; cursor:pointer; }
+    .section-card { background:white; padding:14px; border-radius:8px; margin-bottom:12px; box-shadow:0 4px 12px rgba(0,0,0,.04); }
+    .map-wrap iframe { width:100%; height:260px; border:0; border-radius:8px; }
+    .contact-meta p { margin:8px 0; }
+    .small-note { font-size:13px; color:#555; }
+    @media(max-width:900px) { .contact-grid { grid-template-columns: 1fr; } .contact-info{ order: 2 } }
+  </style>
+</head>
+<body>
+  <!-- Header Section -->
+  <header>
+    <div class="container">
+      <div class="logo">
+        <img src="img/logo.png" alt="Foodie Delight Logo" />
+        <h1>Foodie Delight</h1>
+      </div>
+      <nav>
+        <ul class="nav-links">
+          <li><a href="index.html" >Home</a></li>
+          <li><a href="menu.html">Menu</a></li>
+          <li><a href="about.html">About</a></li>
+          <li><a href="contact.html" class="active">Contact</a></li>
+          <li><a href="#" id="cartLink">Cart <span class="cart-count">0</span></a></li>
+  
+          <!-- Visitor order history & profile (always created but content toggled by script) -->
+          <li><a href="#" id="orderHistoryLink">Orders</a></li>
+          <li><a href="#" id="profileLink">Login</a></li>
+  
+          <!-- Admin Link and Bell — inserted and hidden by JS, shown only for admin -->
+          <li><a href="#" id="adminLink" style="display:none;">Admin</a></li>
+          <li><a href="#" id="orderBell" style="display:none;"><i class="fa fa-bell"></i> <span id="orderBellCount" class="cart-count">0</span></a></li>
+        </ul>
+      </nav>
+    </div>
+  </header>
+
+  <main>
+    <section class="contact-page container">
+      <div class="contact-header">
+        <h1>Contact Us</h1>
+        <p>Questions, catering requests, or want to order delivery? We're here to help — call, message or visit us.</p>
+      </div>
+
+      <div class="contact-grid">
+        <!-- left: contact form + explanations -->
+        <div>
+          <div class="section-card contact-form">
+            <h2 style="margin-top:0">Send us a message</h2>
+            <p class="small-note">We answer fast — usually within a few hours. For urgent delivery calls, use the phone number below.</p>
+
+            <form id="contactForm">
+              <div class="form-group">
+                <label for="cname">Full name</label>
+                <input id="cname" name="name" type="text" required placeholder="e.g. Amina Ali" />
+              </div>
+              <div class="form-group">
+                <label for="cemail">Email</label>
+                <input id="cemail" name="email" type="email" required placeholder="you@example.com" />
+              </div>
+              <div class="form-group">
+                <label for="cphone">Phone (optional — good for delivery)</label>
+                <input id="cphone" name="phone" type="text" placeholder="617125558" />
+              </div>
+              <div class="form-group">
+                <label for="cmessage">Message</label>
+                <textarea id="cmessage" name="message" required placeholder="Write your message, delivery request, or feedback..."></textarea>
+              </div>
+
+              <div style="display:flex; gap:10px; align-items:center;">
+                <button class="btn-primary" type="submit">Send Message</button>
+                <div id="contactFormStatus" class="small-note" aria-live="polite"></div>
+              </div>
+            </form>
+
+            <hr style="margin:16px 0" />
+
+            <div class="small-note">
+              <strong>How we use your message</strong>
+              <p>Messages are delivered to our admin panel. We will use your contact details only to reply about your inquiry or order.</p>
+            </div>
+          </div>
+
+          <!-- Extra explanation sections -->
+          <div class="section-card">
+            <h3>Delivery & Pickup</h3>
+            <p>We offer both home delivery in parts of Hodan (Albarako and surroundings) and in-store pickup at our location in Hodan, Mogadishu.</p>
+            <ul>
+              <li>Delivery: call or submit a message with your address (district + nearest place) and phone number.</li>
+              <li>Pickup: place order online and choose "Pickup" at checkout.</li>
+            </ul>
+          </div>
+
+          <div class="section-card">
+            <h3>Frequently asked</h3>
+            <p><strong>Do you accept large orders?</strong> Yes — for events and meetings. Tell us the date, number of people, and menu preference.</p>
+            <p><strong>Payment options:</strong> Cash on delivery, or mobile payment via Hormuud / Somtel (we will provide USSD code on checkout).</p>
+          </div>
+        </div>
+
+        <!-- right: contact info + map -->
+        <aside class="contact-info">
+          <div class="map-wrap section-card">
+            <h3>Our location (live)</h3>
+            <!-- Google Maps embed using a search query for Albarako Hodan Mogadishu -->
+            <iframe
+              src="https://www.google.com/maps?q=Albarako%2C%20Hodan%2C%20Mogadishu&output=embed"
+              loading="lazy"
+              referrerpolicy="no-referrer-when-downgrade"
+              title="Albarako Hodan Map"></iframe>
+            <p class="small-note">Map is interactive — click to open in Google Maps for directions.</p>
+          </div>
+
+          <div class="section-card contact-meta">
+            <h3>Contact details</h3>
+            <p><i class="fas fa-map-marker-alt"></i> Albarako, Hodan, Mogadishu (Foodie Delight)</p>
+            <p><i class="fas fa-phone"></i> <a href="tel:617125558">617125558</a> (Calls & WhatsApp)</p>
+            <p><i class="fas fa-envelope"></i> <a href="mailto:info@foodiedelight.com">info@foodiedelight.com</a></p>
+
+            <h4>Opening hours</h4>
+            <p>Mon–Fri: 10:00 — 22:00<br/>Sat–Sun: 11:00 — 23:00</p>
+          </div>
+
+          <div class="section-card">
+            <h3>Why contact us?</h3>
+            <ul>
+              <li>Menu & dietary questions</li>
+              <li>Order / delivery help</li>
+              <li>Catering & events</li>
+              <li>Feedback — we read every message</li>
+            </ul>
+          </div>
+        </aside>
+      </div>
+    </section>
+  </main>
+
+    <!-- Cart Modal -->
+    <div class="cart-modal" id="cartModal">
+      <div class="cart-content">
+        <div class="cart-header">
+          <h2>Your Cart</h2>
+          <span class="close-btn" id="closeCart">&times;</span>
+        </div>
+        <div class="cart-body">
+          <div id="cartItems">
+            <p class="empty-cart-message">Your cart is empty</p>
+          </div>
+          <div class="cart-footer">
+            <div class="cart-total">
+              <h3>Total: $<span id="cartTotal">0.00</span></h3>
+            </div>
+            <button class="btn-primary checkout-btn" id="checkoutBtn">Checkout</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  
+  <!-- cart modal + footer remain as in your site -->
+  <!-- include your cart modal markup here or keep existing page footer -->
+
+  <footer>
+    <div class="container">
+      <div class="footer-content">
+        <div class="footer-section">
+          <h3>Foodie Delight</h3>
+          <p>Delivering delicious food with love since 2025</p>
+        </div>
+        <div class="footer-section">
+          <h3>Quick Links</h3>
+          <ul>
+            <li><a href="index.html">Home</a></li>
+            <li><a href="menu.html">Menu</a></li>
+            <li><a href="about.html">About</a></li>
+            <li><a href="contact.html">Contact</a></li>
+          </ul>
+        </div>
+        <div class="footer-section">
+          <h3>Contact</h3>
+          <p><i class="fas fa-map-marker-alt"></i> Albarako, Hodan, Mogadishu</p>
+          <p><i class="fas fa-phone"></i> <a href="tel:617125558">617125558</a></p>
+        </div>
+      </div>
+      <div class="footer-bottom"><p>&copy; 2025 Foodie Delight</p></div>
+    </div>
+  </footer>
+  <script type="module" src="database.js"></script>
+  <!-- keep your main script and database module -->
+  <script src="script.js"></script>
+
+  <script>
+    // contact page client logic
+    (function() {
+      const form = document.getElementById('contactForm');
+      const statusEl = document.getElementById('contactFormStatus');
+
+      // local outbox fallback key
+      const OUTBOX_KEY = 'contacts_outbox_v1';
+
+      function showStatus(msg, isError) {
+        statusEl.textContent = msg || '';
+        statusEl.style.color = isError ? '#b00' : '#2a7a2a';
+      }
+
+      function enqueueOutbox(contact) {
+        try {
+          const out = JSON.parse(localStorage.getItem(OUTBOX_KEY) || '[]');
+          out.unshift(contact);
+          localStorage.setItem(OUTBOX_KEY, JSON.stringify(out));
+        } catch(e) { console.warn('outbox save failed', e); }
+      }
+
+      async function tryFlushOutbox() {
+        if (!window.FirebaseDB || typeof window.FirebaseDB.saveContact !== 'function') return;
+        try {
+          const out = JSON.parse(localStorage.getItem(OUTBOX_KEY) || '[]');
+          if (!out || !out.length) return;
+          // send in order (oldest last)
+          for (let i = out.length - 1; i >= 0; i--) {
+            const c = out[i];
+            try {
+              const res = await window.FirebaseDB.saveContact(c);
+              if (res && res.success) {
+                // remove from outbox
+                out.splice(i, 1);
+              }
+            } catch (e) { console.warn('flush single outbox failed', e); }
+          }
+          localStorage.setItem(OUTBOX_KEY, JSON.stringify(out));
+        } catch (e) { console.warn('flush outbox failed', e); }
+      }
+
+      // attempt to flush whenever FirebaseDB becomes available
+      function waitAndFlush() {
+        if (window.FirebaseDB && typeof window.FirebaseDB.saveContact === 'function') {
+          tryFlushOutbox();
+        } else {
+          // try again in a bit
+          setTimeout(waitAndFlush, 3000);
+        }
+      }
+      waitAndFlush();
+
+      // If visitor is admin or page wants to show previously submitted messages, we could also call listContacts()
+
+      form.addEventListener('submit', async function(e) {
+        e.preventDefault();
+        showStatus('Sending...', false);
+        const name = document.getElementById('cname').value.trim();
+        const email = document.getElementById('cemail').value.trim();
+        const phone = document.getElementById('cphone').value.trim();
+        const message = document.getElementById('cmessage').value.trim();
+        if (!name || !email || !message) { showStatus('Please fill required fields', true); return; }
+
+        const contactObj = {
+          name, email, phone: phone || '', message,
+          locationHint: 'Albarako, Hodan, Mogadishu', // convenience
+          createdByVisitorId: localStorage.getItem('visitorId') || null
+        };
+
+        // try remote save
+        if (window.FirebaseDB && typeof window.FirebaseDB.saveContact === 'function') {
+          try {
+            const res = await window.FirebaseDB.saveContact(contactObj);
+            if (res && res.success) {
+              showStatus('Message sent. We will reply soon.', false);
+              form.reset();
+              // optionally refresh local history
+              return;
+            } else {
+              // fallback to outbox
+              enqueueOutbox({ ...contactObj, savedAt: new Date().toISOString() });
+              showStatus('Saved locally (offline). Will send when online.', false);
+              form.reset();
+              return;
+            }
+          } catch (err) {
+            console.warn('saveContact threw', err);
+            enqueueOutbox({ ...contactObj, savedAt: new Date().toISOString() });
+            showStatus('Saved locally (error sending). Will retry.', false);
+            form.reset();
+            return;
+          }
+        } else {
+          // no DB object yet — store in outbox
+          enqueueOutbox({ ...contactObj, savedAt: new Date().toISOString() });
+          showStatus('Saved locally. Will send when server available.', false);
+          form.reset();
+        }
+      });
+
+      // try to flush the outbox every 10s when DB present
+      setInterval(() => { tryFlushOutbox(); }, 10000);
+    })();
+  </script>
+</body>
+</html>
