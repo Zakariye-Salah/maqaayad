@@ -593,17 +593,26 @@ footer {
 
 /* ------------------ Mobile nav, hamburger animation & admin dropdown ------------------ */
 
-/* hamburger button (desktop hidden by default via HTML injection) */
-#mobileMenuBtn {
+/* make header container relative so we can position the button inside it */
+header .container{
+    position: relative;
+  }
+  
+  /* hamburger button */
+  #mobileMenuBtn {
     background: transparent;
     border: none;
     cursor: pointer;
     padding: 8px;
-    margin-right:-120px;
-    display: none; /* shown by media query */
+    display: none;           /* hidden on desktop */
     align-items: center;
     justify-content: center;
+    position: absolute;      /* keep it in the same header line */
+    right: 10px;             /* right side of header */
+    top: 50%;
+    transform: translateY(-50%);
   }
+  
   
   /* hamburger icon - three bars */
   .hamburger {
@@ -693,5 +702,42 @@ footer {
       display:block; width:100%; text-align:left; padding:8px 10px; border:none; background:transparent; cursor:pointer; color:#222; border-radius:6px;
     }
     #mobileAdminMenu a:hover, #mobileAdminMenu button:hover { background: rgba(30,60,114,0.06); }
+  }
+  
+
+  @media (max-width: 768px) {
+    .nav-links { 
+      display: none; 
+    }
+  
+    #mobileMenuBtn { 
+      display: inline-flex; 
+    }
+  
+    /* dropdown menu under the header */
+    .nav-links.nav-open {
+      display: flex;
+      flex-direction: column;
+      position: absolute;
+      top: 100%;          /* directly below header */
+      right: 10px;
+      background: white;
+      padding: 12px;
+      border-radius: 10px;
+      box-shadow: 0 8px 30px rgba(0,0,0,0.12);
+      z-index: 1200;
+      min-width: 220px;
+      gap: 8px;
+    }
+  
+    .nav-links.nav-open li { 
+      margin: 6px 0; 
+    }
+  
+    .nav-links.nav-open a { 
+      display:block; 
+      padding:8px 10px; 
+      border-radius:6px; 
+    }
   }
   
