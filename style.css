@@ -599,7 +599,7 @@ footer {
     border: none;
     cursor: pointer;
     padding: 8px;
-    margin-right: -170px;
+    margin-right:-120px;
     display: none; /* shown by media query */
     align-items: center;
     justify-content: center;
