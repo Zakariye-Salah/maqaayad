@@ -44,7 +44,7 @@ body {
 .btn-small {
     display: inline-block;
     background: linear-gradient(135deg, #f83002, #2a5298);
-    color: white;
+    color: rgb(248, 58, 33);
     padding: 6px 15px;
     border: none;
     border-radius: 30px;
