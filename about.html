@@ -8,34 +8,46 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 </head>
 <body>
-    <!-- Header Section -->
-    <header>
-        <div class="container">
-          <div class="logo">
-            <img src="img/logo.png" alt="Foodie Delight Logo" />
-            <h1>Foodie Delight</h1>
-          </div>
-          <nav>
-            <ul class="nav-links">
-              <li><a href="index.html">Home</a></li>
-              <li><a href="menu.html">Menu</a></li>
-              <li><a href="about.html" class="active">About</a></li>
-              <li><a href="contact.html">Contact</a></li>
-              <li><a href="order-track.html">tracking</a></li>
-
-              <li><a href="#" id="cartLink">Cart <span class="cart-count">0</span></a></li>
-      
-              <!-- Visitor order history & profile (always created but content toggled by script) -->
-              <li><a href="#" id="orderHistoryLink">Orders</a></li>
-              <li><a href="#" id="profileLink">Login</a></li>
-      
-              <!-- Admin Link and Bell — inserted and hidden by JS, shown only for admin -->
-              <li><a href="#" id="adminLink" style="display:none;">Admin</a></li>
-              <li><a href="#" id="orderBell" style="display:none;"><i class="fa fa-bell"></i> <span id="orderBellCount" class="cart-count">0</span></a></li>
-            </ul>
-          </nav>
-        </div>
-      </header>
+     <!-- Header Section -->
+<header>
+    <div class="container header-row">
+      <div class="logo">
+        <img src="img/logo.png" alt="Foodie Delight Logo" />
+        <h1>Foodie Delight</h1>
+      </div>
+  
+      <!-- Mobile icons (order, shop) — inserted BEFORE nav to show on mobile left -->
+      <div id="mobileIcons" class="mobile-icons" aria-hidden="false"></div>
+  
+      <nav role="navigation" aria-label="Primary">
+        <ul class="nav-links">
+          <li><a href="index.html">Home</a></li>
+          <li><a href="menu.html">Menu</a></li>
+          <li><a href="about.html" class="active">About</a></li>
+          <li><a href="contact.html">Contact</a></li>
+          <li><a href="order-track.html">Tracking</a></li>
+  
+          <!-- Desktop-visible Cart & Orders (we will hide on mobile via CSS/class) -->
+          <li><a href="#" id="cartLink">Cart <span class="cart-count">0</span></a></li>
+          <li><a href="#" id="orderHistoryLink">Orders</a></li>
+  
+          <!-- Visitor profile -->
+          <li><a href="#" id="profileLink">Login</a></li>
+  
+          <!-- Admin dashboard (single place) + admin bell (single place) -->
+          <li id="adminLi" style="display:none;"><a href="#" id="adminLink">Admin</a></li>
+          <li id="orderBellLi" style="display:none;">
+            <a href="#" id="orderBell" title="Admin orders" aria-label="Admin orders">
+              <span class="bell-icon" aria-hidden="true">🔔</span>
+              <span id="orderBellCount" class="cart-count">0</span>
+            </a>
+          </li>
+        </ul>
+      </nav>
+  
+      <!-- hamburger injected elsewhere if you already have it; this header won't interfere -->
+    </div>
+  </header>
       
 
     <!-- About Section -->
