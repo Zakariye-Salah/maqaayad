@@ -1735,25 +1735,42 @@ function checkout() {
 
   // ---------------------------
   // Fixed-restaurant USSD helper
+
+  function splitAmountForUSSD(amount) {
+    const num = Number(amount) || 0;
+  
+    // Always force 2 decimals
+    const fixed = num.toFixed(2); // "45.76"
+    const [whole, cents] = fixed.split('.');
+  
+    return {
+      whole,           // "45"
+      cents            // "76"
+    };
+  }
+  
   // ---------------------------
   // Fixed-restaurant USSD helper (keep exact 2-decimal amount)
   function generateUSSD(operator, amount) {
-    // Restaurant (fixed) numbers — change these if you want different restaurant numbers later
     const RESTAURANT_NUMBERS = {
-      'Hormuud': '67125558',   // *712*67125558*AMOUNT#
-      'Somtel':  '627125558'   // *110*627125558*AMOUNT#
+      Hormuud: '617125558', // *712*
+      Somtel:  '627125558'  // *110*
     };
-
-    // Ensure amount is shown exactly with 2 decimals (no rounding to integer)
-    const amtNum = Number(amount) || 0;
-    const amtStr = amtNum.toFixed(2); // "9.90", "12.50", etc.
-
-    if (operator === 'Hormuud') return `*712*${RESTAURANT_NUMBERS['Hormuud']}*${amtStr}#`;
-    if (operator === 'Somtel')  return `*110*${RESTAURANT_NUMBERS['Somtel']}*${amtStr}#`;
-
-    // fallback to Hormuud format
-    return `*712*${RESTAURANT_NUMBERS['Hormuud']}*${amtStr}#`;
+  
+    const { whole, cents } = splitAmountForUSSD(amount);
+  
+    if (operator === 'Hormuud') {
+      return `*712*${RESTAURANT_NUMBERS.Hormuud}*${whole}*${cents}#`;
+    }
+  
+    if (operator === 'Somtel') {
+      return `*110*${RESTAURANT_NUMBERS.Somtel}*${whole}*${cents}#`;
+    }
+  
+    // fallback
+    return `*712*${RESTAURANT_NUMBERS.Hormuud}*${whole}*${cents}#`;
   }
+  
 
   // ---------------------------
   // Payment modal (uses fixed restaurant numbers in USSD)
