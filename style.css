@@ -40,6 +40,49 @@ body {
     box-shadow: 0 6px 20px rgba(30, 60, 114, 0.3);
 }
 
+
+.btn-small {
+    display: inline-block;
+    background: linear-gradient(135deg, #f83002, #2a5298);
+    color: white;
+    padding: 6px 15px;
+    border: none;
+    border-radius: 30px;
+    cursor: pointer;
+    font-size: 16px;
+    font-weight: 600;
+    text-decoration: none;
+    transition: all 0.3s ease;
+    box-shadow: 0 4px 15px rgba(30, 60, 114, 0.2);
+}
+
+.btn-small:hover {
+    background: linear-gradient(135deg, #2a5298, #1e3c72);
+    transform: translateY(-2px);
+    box-shadow: 0 6px 20px rgba(30, 60, 114, 0.3);
+}
+
+.btn-smalll {
+    display: inline-block;
+    background: linear-gradient(135deg, #2a5298, #0292f8);
+    color: white;
+    padding: 6px 15px;
+    border: none;
+    border-radius: 30px;
+    cursor: pointer;
+    font-size: 16px;
+    font-weight: 600;
+    text-decoration: none;
+    transition: all 0.3s ease;
+    box-shadow: 0 4px 15px rgba(30, 60, 114, 0.2);
+}
+
+.btn-smalll:hover {
+    background: linear-gradient(135deg, #2a5298, #1e3c72);
+    transform: translateY(-2px);
+    box-shadow: 0 6px 20px rgba(30, 60, 114, 0.3);
+}
+
 /* Header Styles */
 header {
     background: white;
@@ -608,7 +651,7 @@ header .container{
     align-items: center;
     justify-content: center;
     position: absolute;      /* keep it in the same header line */
-    right: 10px;             /* right side of header */
+    right: -10px;             /* right side of header */
     top: 50%;
     transform: translateY(-50%);
   }
@@ -740,4 +783,213 @@ header .container{
       border-radius:6px; 
     }
   }
+  /* Mobile icons + small badges */
+.mobile-icons {
+  display: none;              /* shown on small screens via media query */
+  gap: 8px;
+  align-items: center;
+  margin-right: 8px;
+}
+
+.mobile-icons .icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 8px;
+  background: transparent;
+  border: none;
+  padding: 6px;
+  cursor: pointer;
+}
+
+.mobile-icons .icon-btn svg { width:20px; height:20px; display:block; fill: currentColor; }
+
+.mobile-icons .cart-icon { color: #0b74ff; }    /* shop icon in blue */
+.mobile-icons .order-icon { color: #f23f09; }      /* orders icon neutral */
+
+.mobile-icons .count-badge {
+  display: inline-block;
+  min-width: 18px;
+  height: 18px;
+  margin-bottom:-2px;
+  font-size: 10px;
+  line-height: 18px;
+  text-align: center;
+  border-radius: 10px;
+  background: #ff4757;
+  color: #fff;
+  font-weight: 700;
+  padding: 0 2px;
+  margin-left: -10px;
+  margin-top: -18px;
+}
+
+/* Hide the cart/orders li in the mobile dropdown (we tag them with .hide-on-mobile) */
+.nav-links li.hide-on-mobile { display: list-item; } /* default - desktop shows them */
+
+/* Mobile layout */
+@media (max-width: 900px) {
+  .mobile-icons { display: inline-flex; }
+  .nav-links li.hide-on-mobile { display: none !important; } /* hide duplicates in mobile dropdown */
+}
+
+
+.admin-avatar{
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    width:26px;
+    height:26px;
+    border-radius:50%;
+    background:#0b74de;
+    color:#fff;
+    font-weight:600;
+    font-size:13px;
+    margin-right:6px;
+  }
   
+
+  .admin-avatar{
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    width:22px;
+    height:22px;
+    border-radius:50%;
+    background:#0b74de;
+    color:#fff;
+    font-size:12px;
+    font-weight:600;
+    margin-right:6px;
+  }
+  .admin-text{
+    vertical-align:middle;
+  }
+/* ---------- Filter dropdown styles ---------- */
+.filter-dropdown { position: relative; display: inline-block; }
+.filter-btn{
+  display:inline-flex; align-items:center; gap:8px;
+  padding:8px 12px; border-radius:8px; border:1px solid #e6e9ee;
+  background:#fff; cursor:pointer; font-weight:600;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.03);
+}
+.filter-list{
+  display:none; position:absolute; right:0; top:calc(100% + 8px);
+  background:#fff; border:1px solid #eef1f6; padding:6px; border-radius:10px;
+  box-shadow:0 10px 28px rgba(30,60,114,0.08); min-width:200px; z-index:1500;
+  list-style:none; margin:0;
+}
+.filter-list.show{ display:block; }
+.filter-option{ padding:8px 10px; cursor:pointer; border-radius:6px; margin:2px 0; }
+.filter-option:hover{ background:#f5f8ff; }
+.filter-option.selected, .filter-option[aria-selected="true"]{ background:#eef3ff; font-weight:700; }
+
+/* visible count badge */
+.visible-count{
+  display:inline-block; min-width:26px; text-align:center; line-height:20px;
+  padding:2px 6px; margin-left:8px; border-radius:999px; font-size:13px;
+  background:#f1f5ff; color:#1f3b8b; font-weight:700;
+  border:1px solid rgba(30,60,114,0.06);
+}
+
+/* mobile tweak: dropdown full-width */
+@media (max-width:768px){
+  .filter-list{ left:8px; right:8px; min-width:auto; }
+}
+  
+
+/* Ensure modal image looks good on top, single-column layout */
+#foodOptionsModal .cart-content { padding: 0; overflow: hidden; }
+#foodOptionsModal .cart-header { background: #fff; }
+#foodOptionsModal .cart-body { background: #fff; padding: 18px; }
+#foodOptionsModal img.food-modal-image { display:block; width:100%; height:220px; object-fit:cover; border-radius:8px; margin-bottom:12px; }
+@media (max-width:420px) {
+  #foodOptionsModal img.food-modal-image { height:160px; }
+}
+
+
+/* small spinner used inside buttons when loading */
+.btn-loading {
+    pointer-events: none;
+    opacity: 0.9;
+  }
+  .btn-loading .spinner {
+    display: inline-block;
+    width: 16px;
+    height: 16px;
+    vertical-align: middle;
+    margin-right: 8px;
+    border-radius: 50%;
+    border: 2px solid rgba(255,255,255,0.2);
+    border-top-color: currentColor;
+    animation: spin 0.9s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  
+  /* ---- Admin modal: stable labels, inputs and pw toggle ---- */
+#adminLoginModal .form-row { margin-bottom:12px; }
+#adminLoginModal label { display:block; margin-bottom:6px; font-weight:600; color:#263f57; }
+
+/* Email input (full width) */
+#adminLoginModal input[type="email"] {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid #dfe8f3;
+  font-size: 14px;
+  height: 42px;
+  background: #fff;
+}
+
+/* Password block: label above, input + toggle in a row */
+#adminLoginModal .input-group {
+  display:flex;
+  align-items:center;
+  gap:8px;
+}
+
+/* Password input takes the remaining space and never shrinks */
+#adminLoginModal .input-group input[type="password"],
+#adminLoginModal .input-group input[type="text"] {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid #dfe8f3;
+  height: 42px;
+  font-size: 14px;
+  box-sizing: border-box;
+  background: #fff;
+}
+
+/* Toggle button: fixed size separate from input (will not overlap) */
+#adminLoginModal .pw-toggle {
+  flex: 0 0 44px;
+  width:44px;
+  height:44px;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  border-radius:8px;
+  border:none;
+  background:transparent;
+  cursor:pointer;
+  color:#2b4f6b;
+  font-size:16px;
+  padding:0;
+}
+#adminLoginModal .pw-toggle:hover { background: rgba(11,116,222,0.04); }
+#adminLoginModal .pw-toggle i { font-size:16px; line-height:1; }
+
+/* Sign button consistent */
+#adminLoginModal .btn-primary { min-width:120px; padding:10px 16px; }
+
+/* small screens */
+@media (max-width:420px) {
+  #adminLoginModal .pw-toggle { flex:0 0 38px; width:38px; height:38px; }
+  #adminLoginModal input[type="email"], #adminLoginModal .input-group input[type="password"] { height:40px; padding:10px; }
+}
