@@ -277,147 +277,410 @@ function stopVisitorOrderListener() {
   let isAdminSignedIn = false;
   let currentAdminDoc = null; // admin Firestore doc
   
-  // DOM: admin controls in header (create if missing)
-  function ensureAdminControls() {
-    const nav = document.querySelector('nav .nav-links');
-    if (!nav) return;
-  
-    // Admin Login button
-    if (!document.getElementById('adminLoginBtn')) {
-      const li = document.createElement('li');
-      li.innerHTML = `<a href="#" id="adminLoginBtn">Admin Login</a>`;
-      nav.appendChild(li);
-      document.getElementById('adminLoginBtn').addEventListener('click', (e) => {
+// ----------------------
+// Simplified: ensure single admin link + single bell (no duplicates)
+// ----------------------
+
+function forceHideAdminBellInMobileDropdown() {
+  document.querySelectorAll('#orderBell, #orderBellLi').forEach(el => {
+    el.style.display = 'none';
+  });
+}
+
+/* header_mobile_admin_controls - plain JS (paste into script.js after your auth helpers) */
+
+/* ensure global admin state vars exist (used by other code) */
+window.isAdminSignedIn = window.isAdminSignedIn || false;
+window.currentAdminDoc = window.currentAdminDoc || null;
+
+/* ------------------ Helpers: tag desktop li's to hide on mobile ------------------ */
+function tagDesktopCartOrders() {
+  try {
+    const cartAnchor = document.getElementById('cartLink');
+    if (cartAnchor) {
+      const li = cartAnchor.closest('li');
+      if (li) li.classList.add('hide-on-mobile');
+    }
+    const ordersAnchor = document.getElementById('orderHistoryLink');
+    if (ordersAnchor) {
+      const li2 = ordersAnchor.closest('li');
+      if (li2) li2.classList.add('hide-on-mobile');
+    }
+
+    // hide the admin BELL list item from the mobile dropdown (but NOT the adminLink)
+    const orderBellLi = document.getElementById('orderBellLi');
+    if (orderBellLi) orderBellLi.classList.add('hide-on-mobile');
+
+    // defensive: hide duplicates
+    const duplicates = document.querySelectorAll('nav .nav-links [id="cartLink"], nav .nav-links [id="orderHistoryLink"]');
+    duplicates.forEach(n => {
+      const li = n.closest('li');
+      if (li) li.classList.add('hide-on-mobile');
+    });
+  } catch (e) { console.warn('tagDesktopCartOrders failed', e); }
+}
+
+/* ------------------ Admin DOM controls (singleton-safe) ------------------ */
+
+
+/* ------------------ Mobile header admin bell + counts ------------------ */
+function updateMobileIconsAdminBell() {
+  const container = document.getElementById('mobileIcons');
+  if (!container) return;
+
+  let btn = document.getElementById('mobileAdminBellBtn');
+
+  if (window.isAdminSignedIn) {
+    if (!btn) {
+      btn = document.createElement('button');
+      btn.id = 'mobileAdminBellBtn';
+      btn.type = 'button';
+      btn.className = 'icon-btn admin-bell';
+      btn.setAttribute('aria-label', 'Admin orders');
+      btn.title = 'Admin orders';
+      btn.innerHTML = `🔔<span id="mobileAdminBellCount" class="count-badge" style="display:none">0</span>`;
+
+      // append after cart button if exists
+      const cartBtn = container.querySelector('#mobileCartBtn');
+      if (cartBtn && cartBtn.parentNode === container) container.insertBefore(btn, cartBtn.nextSibling);
+      else container.appendChild(btn);
+
+      btn.addEventListener('click', (e) => {
         e.preventDefault();
-        openAdminLoginModal();
+        if (window.isAdminSignedIn) window.location.href = 'admin.html';
+        else if (typeof openAdminLoginModal === 'function') openAdminLoginModal();
       });
     }
-  
-    // Admin link (visible only for admin)
-    if (!document.getElementById('adminLink')) {
-      const li = document.createElement('li');
-      li.innerHTML = `<a href="#" id="adminLink" style="display:none;">Admin</a>`;
-      nav.appendChild(li);
-    }
-  
-    // Admin Profile / Logout placeholder (click opens admin page)
-    if (!document.getElementById('adminProfileLink')) {
-      const li = document.createElement('li');
-      li.innerHTML = `<a href="#" id="adminProfileLink" style="display:none;">Admin</a>`;
-      nav.appendChild(li);
-      document.getElementById('adminProfileLink').addEventListener('click', (e) => {
-        e.preventDefault();
-        window.location.href = 'admin.html';
-      });
-    }
-  
-    // Admin-only bell (hidden by default)
-    if (!document.getElementById('orderBell')) {
-      const li = document.createElement('li');
-      li.innerHTML = `<a href="#" id="orderBell" style="display:none;"><i class="fa fa-bell"></i> <span id="orderBellCount" class="cart-count">0</span></a>`;
-      nav.appendChild(li);
-      document.getElementById('orderBell').addEventListener('click', (e) => {
-        e.preventDefault();
-        if (isAdminSignedIn) window.location.href = 'admin.html';
-      });
-    }
+  } else {
+    if (btn) btn.remove();
   }
-  ensureAdminControls();
-  
-  /**
-   * Call this to toggle admin UI state.
-   * adminDoc is the admin Firestore doc (or null).
-   */
-  function setAdminSignedIn(adminDoc) {
-    isAdminSignedIn = !!adminDoc;
-    currentAdminDoc = adminDoc || null;
-  
-    const adminLink = document.getElementById('adminLink');
-    const orderBell = document.getElementById('orderBell');
-    const profileLink = document.getElementById('profileLink');
-    const adminProfileLink = document.getElementById('adminProfileLink');
-    const adminLoginBtn = document.getElementById('adminLoginBtn');
-  
-    if (isAdminSignedIn) {
+}
+
+function updateMobileHeaderCounts() {
+  // cart count
+  try {
+    const cartItems = JSON.parse(localStorage.getItem('cart') || '[]');
+    const total = Array.isArray(cartItems) ? cartItems.reduce((s,i)=> s + (i.quantity || 0), 0) : 0;
+    const cartEl = document.getElementById('mobileCartCount');
+    if (cartEl) {
+      if (total > 0) { cartEl.style.display = 'inline-block'; cartEl.textContent = total; }
+      else cartEl.style.display = 'none';
+    }
+    document.querySelectorAll('.cart-count').forEach(el => { el.textContent = total; });
+  } catch(e){ /* ignore */ }
+
+  // orders pending
+  let pending = 0;
+  try {
+    const orders = JSON.parse(localStorage.getItem('orders') || '[]');
+    pending = Array.isArray(orders) ? orders.filter(o => (o.status || o.paymentStatus || 'pending') === 'pending').length : 0;
+    const orderEl = document.getElementById('mobileOrderCount');
+    if (orderEl) {
+      if (pending > 0) { orderEl.style.display = 'inline-block'; orderEl.textContent = pending; }
+      else orderEl.style.display = 'none';
+    }
+    // sync desktop bell
+    const bellCount = document.getElementById('orderBellCount');
+    if (bellCount) bellCount.textContent = pending;
+  } catch(e){ /* ignore */ }
+
+  // mobile admin bell badge
+  try {
+    const mobileAdminBell = document.getElementById('mobileAdminBellCount');
+    if (mobileAdminBell) {
+      if (pending > 0) { mobileAdminBell.style.display = 'inline-block'; mobileAdminBell.textContent = pending; }
+      else mobileAdminBell.style.display = 'none';
+    }
+  } catch(e){}
+
+  // keep original desktop bell sync alive if available
+  try { if (typeof refreshOrderBell === 'function') refreshOrderBell(); } catch(e){}
+}
+
+/* expose for other modules to call manually if needed */
+window.updateMobileHeaderCounts = updateMobileHeaderCounts;
+window.updateMobileIconsAdminBell = updateMobileIconsAdminBell;
+
+/* ------------------ Admin state toggler (singleton-safe) ------------------ */
+function setAdminSignedIn(adminDoc) {
+  // set global flags
+  window.isAdminSignedIn = !!adminDoc;
+  window.currentAdminDoc = adminDoc || null;
+
+  // query UI elements (some may be created elsewhere)
+  const adminLi = document.getElementById('adminLi') || document.getElementById('adminLink')?.closest('li');
+  const adminLink = document.getElementById('adminLink');
+  const orderBellLi = document.getElementById('orderBellLi');
+  const adminLoginBtn = document.getElementById('adminLoginBtn');
+  const profileLink = document.getElementById('profileLink');
+
+  try {
+    if (window.isAdminSignedIn) {
+      // 1) Show Dashboard (NO name, NO avatar)
+      if (adminLi) adminLi.style.display = 'inline-block';
       if (adminLink) {
-        adminLink.style.display = 'inline';
-        adminLink.textContent = adminDoc.name || 'Admin';
+        adminLink.style.display = 'inline-block';
+        // plain Dashboard text only
+        adminLink.innerHTML = `Dashboard`;
+        // always navigate straight to admin.html
+        adminLink.href = 'admin.html';
+        adminLink.onclick = function(e){ /* allow normal navigation */ };
       }
-      if (adminProfileLink) adminProfileLink.style.display = 'inline';
+
+      // 2) Show desktop bell
+      if (orderBellLi) orderBellLi.style.display = 'inline-block';
+
+      // 3) Hide the Admin Login button (we don't want it visible while signed in)
       if (adminLoginBtn) adminLoginBtn.style.display = 'none';
-      if (orderBell) orderBell.style.display = 'inline';
-      if (profileLink) profileLink.style.display = 'none';
-  
-      // persist admin doc locally so other pages can restore UI quickly
+
+      // 4) Show a visible Logout button for the admin — we reuse profileLink element
+      if (profileLink) {
+        const profileLi = profileLink.closest('li');
+        if (profileLi) profileLi.style.display = 'inline-block';
+        profileLink.textContent = 'Logout';
+        // clicking Logout uses adminSignOutUI if available, otherwise clears local state
+        profileLink.onclick = async function(e){
+          e.preventDefault();
+          // optional confirm
+          if (!confirm('Logout from admin?')) return;
+          if (typeof adminSignOutUI === 'function') {
+            try {
+              // adminSignOutUI should handle remote signout; if not available fallback below
+              await adminSignOutUI();
+            } catch(err){
+              // fallback: clear UI
+              setAdminSignedIn(null);
+            }
+          } else {
+            setAdminSignedIn(null);
+          }
+        };
+      }
+
+      // 5) Persist admin session to localStorage
       try {
         localStorage.setItem('adminSigned', '1');
         localStorage.setItem('adminDoc', JSON.stringify(adminDoc || {}));
-      } catch (e) { console.warn('Could not persist adminDoc locally', e); }
-  
-      refreshOrderBell(); // update bell
-        // sync mobile admin UI if mobile injection exists
-  try { updateMobileAdminVisibility(); } catch(e) {}
+      } catch (err) { console.warn('persist adminDoc failed', err); }
 
     } else {
-      if (adminLink) adminLink.style.display = 'none';
-      if (adminProfileLink) adminProfileLink.style.display = 'none';
-      if (adminLoginBtn) adminLoginBtn.style.display = 'inline';
-      if (orderBell) orderBell.style.display = 'none';
-      if (profileLink) {
-        profileLink.style.display = 'inline';
-        profileLink.textContent = visitorName || 'Login';
-      }
-  
-      // remove persistence
-      localStorage.removeItem('adminSigned');
-      localStorage.removeItem('adminDoc');
-  
-      refreshOrderBell();
-        // sync mobile admin UI if mobile injection exists
-  try { updateMobileAdminVisibility(); } catch(e) {}
+      // SIGNED OUT: show Admin Login + visitor Login
 
+      // 1) Hide Dashboard and bell
+      if (adminLi) adminLi.style.display = 'none';
+      if (adminLink) adminLink.style.display = 'none';
+      if (orderBellLi) orderBellLi.style.display = 'none';
+
+      // 2) Show Admin Login button (if exists), wired to openAdminLoginModal
+      if (adminLoginBtn) {
+        adminLoginBtn.style.display = 'inline-block';
+        adminLoginBtn.textContent = 'Admin Login';
+        adminLoginBtn.onclick = function(e){
+          e.preventDefault();
+          if (typeof openAdminLoginModal === 'function') openAdminLoginModal();
+        };
+      } else {
+        // defensive: if adminLoginBtn missing, create a minimal one appended to nav
+        try {
+          const nav = document.querySelector('nav .nav-links');
+          if (nav && !document.getElementById('adminLoginBtn')) {
+            const li = document.createElement('li');
+            li.id = 'adminLoginBtnLi';
+            li.innerHTML = `<a href="#" id="adminLoginBtn">Admin Login</a>`;
+            nav.appendChild(li);
+            const btn = document.getElementById('adminLoginBtn');
+            if (btn) btn.addEventListener('click', (ev)=>{ ev.preventDefault(); if (typeof openAdminLoginModal === 'function') openAdminLoginModal(); });
+          }
+        } catch(e){}
+      }
+
+      // 3) Show visitor Login (profileLink) — restore visitor name if present
+      if (profileLink) {
+        const profileLi = profileLink.closest('li');
+        if (profileLi) profileLi.style.display = 'inline-block';
+        const name = localStorage.getItem('visitorName') || 'Login';
+        profileLink.textContent = name;
+        profileLink.onclick = function(e){
+          e.preventDefault();
+          if (typeof openLoginModal === 'function') openLoginModal();
+        };
+      } else {
+        // defensive: create profileLink if missing
+        try {
+          const nav = document.querySelector('nav .nav-links');
+          if (nav && !document.getElementById('profileLink')) {
+            const li = document.createElement('li');
+            li.innerHTML = `<a href="#" id="profileLink">${localStorage.getItem('visitorName') || 'Login'}</a>`;
+            nav.appendChild(li);
+            const p = document.getElementById('profileLink');
+            if (p) p.addEventListener('click', (ev)=>{ ev.preventDefault(); if (typeof openLoginModal === 'function') openLoginModal(); });
+          }
+        } catch(e){}
+      }
+
+      // 4) Remove persisted admin info
+      try {
+        localStorage.removeItem('adminSigned');
+        localStorage.removeItem('adminDoc');
+      } catch(err){ console.warn('remove admin persistence failed', err); }
     }
+  } catch (err) {
+    console.warn('setAdminSignedIn error', err);
+  } finally {
+    // keep mobile & header badges in sync with current admin state
+    try { if (typeof updateMobileIconsAdminBell === 'function') updateMobileIconsAdminBell(); } catch(e){}
+    try { if (typeof updateMobileHeaderCounts === 'function') updateMobileHeaderCounts(); } catch(e){}
+    try { if (typeof refreshOrderBell === 'function') refreshOrderBell(); } catch(e){}
   }
-  
+}
+
+
+/* ------------------ Mobile icons bootstrap (self-contained) ------------------ */
+(function(){
+  const MOBILE_ICONS_ID = 'mobileIcons';
+  const ORDER_SVG = '<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false"><path d="M3 6h18v2H3zM5 10h14v2H5zM7 14h10v2H7z" fill="currentColor"/></svg>';
+  const CART_SVG  = '<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false"><path d="M7 4h-2l-1 2h2l2 9h9l1-5H9.5" fill="currentColor"/><circle cx="10" cy="20" r="1.5" fill="currentColor"/><circle cx="18" cy="20" r="1.5" fill="currentColor"/></svg>';
+
+  function ensureMobileIconsContainer() {
+    let container = document.getElementById(MOBILE_ICONS_ID);
+    if (!container) {
+      const headerContainer = document.querySelector('header .container') || document.body;
+      container = document.createElement('div');
+      container.id = MOBILE_ICONS_ID;
+      container.className = 'mobile-icons';
+      headerContainer.insertBefore(container, headerContainer.querySelector('nav'));
+    }
+    return container;
+  }
+
+  function initMobileButtons() {
+    const container = ensureMobileIconsContainer();
+    if (container.dataset.initted) return;
+    container.dataset.initted = '1';
+
+    const orderBtn = document.createElement('button');
+    orderBtn.type = 'button'; orderBtn.id = 'mobileOrderBtn'; orderBtn.className = 'icon-btn order-icon';
+    orderBtn.setAttribute('aria-label','Orders');
+    orderBtn.innerHTML = ORDER_SVG + '<span id="mobileOrderCount" class="count-badge" style="display:none">0</span>';
+
+    const cartBtn = document.createElement('button');
+    cartBtn.type = 'button'; cartBtn.id = 'mobileCartBtn'; cartBtn.className = 'icon-btn cart-icon';
+    cartBtn.setAttribute('aria-label','Cart');
+    cartBtn.innerHTML = CART_SVG + '<span id="mobileCartCount" class="count-badge" style="display:none">0</span>';
+
+    container.appendChild(orderBtn);
+    container.appendChild(cartBtn);
+
+    orderBtn.addEventListener('click', function(e){ e.preventDefault(); if (typeof openOrderHistory === 'function') return openOrderHistory(); const a = document.getElementById('orderHistoryLink'); if (a) a.click(); });
+    cartBtn.addEventListener('click', function(e){ e.preventDefault(); if (typeof openCart === 'function') return openCart(); if (typeof checkout === 'function') return checkout(); const a = document.getElementById('cartLink'); if (a) a.click(); });
+
+    [orderBtn, cartBtn].forEach(btn => {
+      btn.addEventListener('keydown', function(ev){ if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); btn.click(); } });
+    });
+
+    // Tag desktop nav items so CSS hides them in mobile dropdown
+    tagDesktopCartOrders();
+
+    // initial counts
+    try { updateMobileHeaderCounts(); } catch(e){}
+  }
+
+  // storage observer to keep counts fresh across tabs
+  window.addEventListener('storage', function(e){
+    if (!e.key) { try{ updateMobileHeaderCounts(); }catch(e){}; return; }
+    if (e.key === 'cart' || e.key === 'orders') { try{ updateMobileHeaderCounts(); }catch(e){} }
+  });
+
+  // polling fallback
+  let _lastCartSnapshot = '';
+  setInterval(function(){ try { const snapshot = localStorage.getItem('cart') + '|' + localStorage.getItem('orders'); if (snapshot !== _lastCartSnapshot) { _lastCartSnapshot = snapshot; updateMobileHeaderCounts(); } } catch(e){} }, 1000);
+
+  // Boot
+  document.addEventListener('DOMContentLoaded', function(){
+    try { if (typeof loadCartFromLocalStorage === 'function') loadCartFromLocalStorage(); } catch(e){}
+    initMobileButtons();
+    // ensure admin controls exist inside nav
+    try { updateMobileHeaderCounts(); } catch(e){}
+    // ensure mobile admin bell matches admin state
+    try { updateMobileIconsAdminBell(); } catch(e){}
+    // short delayed update to catch late changes
+    setTimeout(function(){ try{ updateMobileHeaderCounts(); }catch(e){} }, 400);
+  });
+
+})();
+
+
   // setup header handlers (call once)
-  function setupHeaderUI() {
-    const orderHistoryLink = document.getElementById('orderHistoryLink');
-    if (orderHistoryLink) orderHistoryLink.addEventListener('click', (e) => { e.preventDefault(); openOrderHistory(); });
-  
+function setupHeaderUI() {
+  const orderHistoryLink = document.getElementById('orderHistoryLink');
+  if (orderHistoryLink) orderHistoryLink.addEventListener('click', (e) => {
+    e.preventDefault();
+    if (typeof openOrderHistory === 'function') openOrderHistory();
+  });
+
+  // Ensure profileLink shows visitor name (if present) but clicking it opens visitor login modal
+  try {
     const profileLink = document.getElementById('profileLink');
-    if (profileLink) profileLink.addEventListener('click', (e) => { e.preventDefault(); openLoginModal(); });
-    if (profileLink) profileLink.textContent = visitorName || 'Login';
-  
-    const adminLink = document.getElementById('adminLink');
-    if (adminLink) adminLink.addEventListener('click', (e) => {
+    if (profileLink) {
+      profileLink.textContent = visitorName || localStorage.getItem('visitorName') || 'Login';
+      profileLink.onclick = function(e) {
+        e.preventDefault();
+        if (typeof openLoginModal === 'function') openLoginModal();
+      };
+    }
+  } catch(e){ /* ignore */ }
+
+  // Admin link: ALWAYS go to admin.html (no checks, no modal)
+  const adminLink = document.getElementById('adminLink');
+  if (adminLink) {
+    // ensure href present and remove any logic-based handlers
+    adminLink.href = 'admin.html';
+    adminLink.onclick = function(e){
+      // allow normal navigation to admin.html
+      // using location.href to ensure cross-page navigation works reliably
       e.preventDefault();
-      if (isAdminSignedIn) window.location.href = 'admin.html';
-      else openAdminLoginModal();
-    });
-  
-    const orderBell = document.getElementById('orderBell');
-    if (orderBell) orderBell.addEventListener('click', (e) => {
-      e.preventDefault();
-      if (isAdminSignedIn) window.location.href = 'admin.html';
-    });
-  }
-  
-  // Attempt to rehydrate admin state from localStorage right away (fast UX)
-  function tryRehydrateAdminFromLocal() {
+      window.location.href = 'admin.html';
+    };
+  } else {
+    // Defensive: create a minimal adminLink if missing
     try {
-      const signed = localStorage.getItem('adminSigned');
-      const doc = localStorage.getItem('adminDoc');
-      if (signed && doc) {
-        const adm = JSON.parse(doc);
-        // basic sanity: require an email field
-        if (adm && adm.email) {
+      const nav = document.querySelector('nav .nav-links');
+      if (nav && !document.getElementById('adminLink')) {
+        const li = document.createElement('li');
+        li.id = 'adminLi';
+        li.innerHTML = `<a href="admin.html" id="adminLink">Dashboard</a>`;
+        nav.appendChild(li);
+        document.getElementById('adminLink').addEventListener('click', function(e){ e.preventDefault(); window.location.href = 'admin.html'; });
+      }
+    } catch(e){}
+  }
+
+  // Desktop bell: also always go to admin.html (no checks)
+  const orderBell = document.getElementById('orderBell');
+  if (orderBell) {
+    orderBell.onclick = function(e) {
+      e.preventDefault();
+      window.location.href = 'admin.html';
+    };
+  }
+}
+
+    // Attempt to rehydrate admin state from localStorage right away (fast UX)// Relaxed rehydrate: use stored adminDoc if adminSigned === '1'
+
+    function tryRehydrateAdminFromLocal() {
+      try {
+        // run synchronously if possible so header click handlers see persisted state quickly
+        const signed = localStorage.getItem('adminSigned');
+        const doc = localStorage.getItem('adminDoc');
+        if (signed === '1' && doc) {
+          const adm = JSON.parse(doc || '{}');
           setAdminSignedIn(adm);
         }
+      } catch (e) {
+        console.warn('rehydrate admin failed', e);
       }
-    } catch (e) {
-      console.warn('rehydrate admin failed', e);
     }
-  }
+    
   tryRehydrateAdminFromLocal();
   
   // SINGLE auth-state listener using database.js helper
@@ -456,74 +719,184 @@ function stopVisitorOrderListener() {
   
   // Admin login modal (no auto-redirect after sign-in)
   function openAdminLoginModal() {
+    // ensure setButtonLoading exists (no-op fallback)
+    if (typeof setButtonLoading !== 'function') {
+      window.setButtonLoading = function(btn, isLoading, label) {
+        if (!btn) return;
+        if (isLoading) {
+          if (btn.dataset._origHtml === undefined) btn.dataset._origHtml = btn.innerHTML;
+          btn.disabled = true;
+          btn.classList.add('btn-loading');
+          btn.innerHTML = `<span class="spinner" aria-hidden="true"></span>${label || 'Processing...'}`;
+        } else {
+          btn.classList.remove('btn-loading');
+          btn.disabled = false;
+          if (btn.dataset._origHtml !== undefined) { btn.innerHTML = btn.dataset._origHtml; delete btn.dataset._origHtml; }
+        }
+      };
+    }
+  
     let modal = document.getElementById('adminLoginModal');
+  
     if (!modal) {
       modal = document.createElement('div');
       modal.id = 'adminLoginModal';
       modal.className = 'cart-modal';
       modal.innerHTML = `
-        <div class="cart-content" style="width:90%; max-width:420px;">
-          <div class="cart-header"><h2>Admin Login</h2><span class="close-btn" id="closeAdminLogin">&times;</span></div>
-          <div class="cart-body" style="padding:20px;">
-            <form id="adminLoginForm">
-              <div style="margin-bottom:10px;"><label>Email</label><br><input id="adminEmail" type="email" required /></div>
-              <div style="margin-bottom:10px;"><label>Password</label><br><input id="adminPassword" type="password" required /></div>
-              <div style="text-align:center;">
-                <button class="btn-primary" type="submit">Sign In</button>
+        <div class="cart-content" role="dialog" aria-modal="true" aria-labelledby="adminLoginTitle">
+          <div class="cart-header">
+            <h2 id="adminLoginTitle">Admin Login</h2>
+            <button class="close-btn" id="closeAdminLogin" aria-label="Close">&times;</button>
+          </div>
+          <div class="cart-body">
+            <form id="adminLoginForm" autocomplete="on" novalidate>
+              <div class="form-row">
+                <label for="adminEmail">Email</label>
+                <input id="adminEmail" name="adminEmail" type="email" required autocomplete="email" placeholder="admin@restaurant.com" />
               </div>
-              <p style="font-size:12px; color:#555; margin-top:10px;">Use a Firebase Auth user that is also added in the <code>admins</code> (or <code>admin</code>) collection.</p>
+  
+              <div class="form-row">
+                <label for="adminPassword">Password</label>
+                <div class="input-group">
+                  <input id="adminPassword" name="adminPassword" type="password" required autocomplete="current-password" placeholder="Password" />
+                  <button type="button" class="pw-toggle" id="adminPwToggle" aria-pressed="false" aria-label="Show password">
+                    <i class="fa fa-eye" aria-hidden="true"></i>
+                  </button>
+                </div>
+              </div>
+  
+              <div style="text-align:center; margin-top:12px;">
+                <button class="btn-primary" type="submit" id="adminSignBtn">Sign In</button>
+              </div>
+  
+              <p class="hint" style="margin-top:12px;">Use a Firebase Auth user that is also added in the <code>admins</code> collection.</p>
             </form>
           </div>
         </div>
       `;
       document.body.appendChild(modal);
+    }
   
-      document.getElementById('closeAdminLogin').addEventListener('click', () => modal.style.display = 'none');
+    // show modal
+    modal.style.display = 'flex';
   
-      document.getElementById('adminLoginForm').addEventListener('submit', async (e) => {
-        e.preventDefault();
-        const email = document.getElementById('adminEmail').value.trim();
-        const password = document.getElementById('adminPassword').value.trim();
+    // DOM refs
+    const closeBtn = modal.querySelector('#closeAdminLogin');
+    const form = modal.querySelector('#adminLoginForm');
+    const emailInput = modal.querySelector('#adminEmail');
+    const passInput = modal.querySelector('#adminPassword');
+    const pwToggle = modal.querySelector('#adminPwToggle');
+    const submitBtn = modal.querySelector('#adminSignBtn');
   
+    // close handlers (idempotent)
+    closeBtn.onclick = () => { modal.style.display = 'none'; };
+    modal.onclick = (e) => { if (e.target === modal) modal.style.display = 'none'; };
+  
+    // escape handler (ensure single listener)
+    const escHandler = (e) => { if (e.key === 'Escape') modal.style.display = 'none'; };
+    document.removeEventListener('keydown', escHandler);
+    document.addEventListener('keydown', escHandler);
+  
+    // password toggle logic
+    if (pwToggle) {
+      pwToggle.setAttribute('aria-pressed', 'false');
+      const icon = pwToggle.querySelector('i');
+      if (icon) icon.className = 'fa fa-eye'; // eye shown when hidden
+  
+      pwToggle.onclick = () => {
+        const currentlyHidden = passInput.getAttribute('type') === 'password';
+        // toggle type but do not touch classes or styles
+        passInput.setAttribute('type', currentlyHidden ? 'text' : 'password');
+  
+        // update icon: eye -> password hidden; eye-slash -> visible (so user can hide)
+        if (icon) icon.className = currentlyHidden ? 'fa fa-eye-slash' : 'fa fa-eye';
+        pwToggle.setAttribute('aria-pressed', String(currentlyHidden));
+  
+        // keep focus and caret at end
+        passInput.focus();
+        try { const len = passInput.value.length; passInput.setSelectionRange(len, len); } catch(e){/*ignore*/ }
+      };
+    }
+  
+    // form submit handler (idempotent)
+    form.onsubmit = async function(e) {
+      e.preventDefault();
+  
+      const email = (emailInput.value || '').trim();
+      const password = (passInput.value || '').trim();
+      if (!email || !password) {
+        showToast && showToast('Enter email and password');
+        return;
+      }
+  
+      setButtonLoading(submitBtn, true, 'Signing in...');
+  
+      try {
         if (!window.FirebaseDB || typeof window.FirebaseDB.adminSignIn !== 'function') {
-          alert('Auth not available. Make sure database.js is loaded.');
+          showToast && showToast('Auth not available. Make sure database.js is loaded.');
           return;
         }
   
         const res = await window.FirebaseDB.adminSignIn(email, password);
-        if (!res.success) {
-          if (res.error === 'not-an-admin') alert('This account is not registered as an admin.');
-          else alert('Sign-in failed: ' + (res.error.message || res.error));
+  
+        if (!res || !res.success) {
+          if (res && res.error === 'not-an-admin') {
+            showToast && showToast('This account is not registered as an admin.');
+          } else {
+            const msg = (res && res.error && (res.error.message || res.error)) || 'Sign-in failed';
+            showToast && showToast(msg);
+          }
           return;
         }
   
-        // Successful sign-in: close modal and update header UI (do NOT redirect)
+        // success
         modal.style.display = 'none';
-        setAdminSignedIn(res.adminDoc || null);
-        showToast('Signed in as admin');
+        try { setAdminSignedIn(res.adminDoc || {}); } catch(err) { console.warn('setAdminSignedIn failed', err); }
+        showToast && showToast('Signed in as admin');
   
-        // Note: persistence is handled by Firebase auth; we also saved adminDoc in localStorage inside setAdminSignedIn()
-      });
-    }
+        try { window.location.href = 'admin.html'; } catch(e){ /* ignore */ }
+      } catch (err) {
+        console.error('admin sign-in error', err);
+        const friendly = (err && err.message) ? err.message : 'Sign-in failed. Try again.';
+        showToast && showToast(friendly);
+      } finally {
+        setButtonLoading(submitBtn, false);
+      }
+    };
   
-    modal.style.display = 'flex';
+    // autofocus email
+    setTimeout(() => { if (emailInput) emailInput.focus(); }, 120);
   }
+  
   
   // Admin logout function (UI)
   async function adminSignOutUI() {
-    if (!window.FirebaseDB || typeof window.FirebaseDB.adminSignOut !== 'function') {
-      alert('Not available');
-      return;
+    // try remote signout if available
+    if (window.FirebaseDB && typeof window.FirebaseDB.adminSignOut === 'function') {
+      try {
+        const res = await window.FirebaseDB.adminSignOut();
+        // we don't require success — we'll clear UI regardless to avoid stuck state
+      } catch (e) { /* ignore */ }
     }
-    const res = await window.FirebaseDB.adminSignOut();
-    if (res.success) {
-      alert('Signed out');
-      setAdminSignedIn(null);
-      // stay on page
-    } else {
-      alert('Sign out error');
-    }
+  
+    // clear UI and local persistence
+    setAdminSignedIn(null);
+  
+    // ensure bell + mobile admin removed and counts reset
+    try {
+      const bellCount = document.getElementById('orderBellCount');
+      if (bellCount) bellCount.textContent = '0';
+      const orderBellLi = document.getElementById('orderBellLi');
+      if (orderBellLi) orderBellLi.style.display = 'none';
+      const mobileBell = document.getElementById('mobileAdminBellBtn');
+      if (mobileBell) mobileBell.remove();
+      const mobileDash = document.getElementById('mobileAdminDashBtn');
+      if (mobileDash) mobileDash.remove();
+    } catch(e){}
+  
+    showToast('Signed out');
   }
+  
   
   function removeOrderFromLocalStorage(orderId) {
     try {
@@ -563,149 +936,165 @@ function stopVisitorOrderListener() {
     const food = foodData.find(f => f.id === foodId);
     if (!food) return;
   
+    // create modal container if missing
     let modal = document.getElementById('foodOptionsModal');
     if (!modal) {
       modal = document.createElement('div');
       modal.id = 'foodOptionsModal';
       modal.className = 'cart-modal';
+      // basic modal wrapper style (flex center)
+      modal.style.display = 'none';
+      modal.style.alignItems = 'center';
+      modal.style.justifyContent = 'center';
       document.body.appendChild(modal);
     }
   
+    // build sizes html
     let sizesHtml = '';
     if (food.sizes && food.sizes.length > 0) {
-      sizesHtml += '<div style="margin-bottom:10px;"><label>Size</label><br>';
+      sizesHtml += '<div style="margin-bottom:12px;"><label style="font-weight:600;">Size</label><br>';
       food.sizes.forEach((s, idx) => {
         const checked = idx === 0 ? 'checked' : '';
-        sizesHtml += `<label style="margin-right:8px;"><input type="radio" name="foodSize" value="${idx}" ${checked}/> ${s.name} ($${s.price.toFixed(2)})</label>`;
+        sizesHtml += `<label style="margin-right:10px; display:inline-block; margin-top:8px;"><input type="radio" name="foodSize" value="${idx}" ${checked}/> ${s.name} (${formatMoney(s.price)})</label>`;
       });
       sizesHtml += '</div>';
     }
   
+    // build extras html
     let extrasHtml = '';
     if (food.extras && food.extras.length > 0) {
-      extrasHtml += '<div style="margin-bottom:10px;"><label>Extras (optional)</label><br>';
+      extrasHtml += '<div style="margin-bottom:12px;"><label style="font-weight:600;">Extras (optional)</label><br>';
       food.extras.forEach(e => {
-        extrasHtml += `<label style="display:block; margin-bottom:6px;"><input type="checkbox" name="foodExtra" value="${e.id}" data-price="${e.price}"/> ${e.name} (+$${e.price.toFixed(2)})</label>`;
+        extrasHtml += `<label style="display:block; margin:6px 0;"><input type="checkbox" name="foodExtra" value="${e.id}" data-price="${e.price}"/> ${e.name} (+${formatMoney(e.price)})</label>`;
       });
       extrasHtml += '</div>';
     }
   
+    // modal inner markup: image at top, then content beneath (single column)
     modal.innerHTML = `
-      <div class="cart-content" style="width:90%; max-width:480px;">
-        <div class="cart-header"><h2>${food.name}</h2><span class="close-btn" id="closeFoodOptions">&times;</span></div>
-        <div class="cart-body" style="padding:20px;">
-          <div style="display:flex; gap:12px;">
-            <img src="${food.image}" alt="${food.name}" style="width:120px; height:90px; object-fit:cover; border-radius:6px;">
-            <div style="flex:1;">
-              <p style="margin-top:0;">${food.description || ''}</p>
-              ${sizesHtml}
-              ${extrasHtml}
-              <div style="margin-bottom:10px;">
-                <label>Quantity</label><br>
-                <input id="optQuantity" type="number" min="1" value="1" style="width:70px; padding:6px;"/>
-              </div>
-              <div style="text-align:center;">
-                <button id="confirmAddToCart" class="btn-primary">Add to Cart</button>
-              </div>
-            </div>
+      <div class="cart-content" style="width:92%; max-width:520px; border-radius:12px; overflow:hidden;">
+        <div class="cart-header" style="display:flex; justify-content:space-between; align-items:center; padding:14px 18px; border-bottom:1px solid #eef1f6;">
+          <h2 style="margin:0; font-size:18px;">${food.name}</h2>
+          <button class="close-btn" id="closeFoodOptions" aria-label="Close" style="background:none; border:none; font-size:22px; cursor:pointer;">&times;</button>
+        </div>
+  
+        <div class="cart-body" style="padding:18px; display:block; gap:12px;">
+          <img class="food-modal-image" src="${food.image}" alt="${food.name}" style="width:100%; height:220px; object-fit:cover; display:block; border-radius:8px; margin-bottom:12px;" />
+          <p style="margin:0 0 12px 0; color:#333;">${food.description || ''}</p>
+  
+          ${sizesHtml}
+          ${extrasHtml}
+  
+          <div style="margin-bottom:12px;">
+            <label style="font-weight:600;">Quantity</label><br>
+            <input id="optQuantity" type="number" min="1" value="1" style="width:84px; padding:8px; border-radius:6px; border:1px solid #ddd; margin-top:8px;" />
+          </div>
+  
+          <div id="optionsTotal" style="font-weight:700; font-size:16px; text-align:right; margin-bottom:12px;"></div>
+  
+          <div style="text-align:center; margin-top:8px;">
+            <button id="confirmAddToCart" class="btn-primary" style="padding:10px 18px; border-radius:8px;">Add to Cart</button>
           </div>
         </div>
       </div>
     `;
   
+    // show modal
     modal.style.display = 'flex';
   
- // close button (keep)
-document.getElementById('closeFoodOptions').addEventListener('click', () => modal.style.display = 'none');
-
-// ---- Insert a "live total" element (placed before the confirm button) ----
-const confirmBtn = document.getElementById('confirmAddToCart');
-// create a total display just above the button for clear visibility
-const totalEl = document.createElement('div');
-totalEl.id = 'optionsTotal';
-totalEl.style.margin = '8px 0 12px';
-totalEl.style.fontWeight = '700';
-totalEl.style.fontSize = '16px';
-totalEl.style.textAlign = 'right';
-confirmBtn.parentNode.insertBefore(totalEl, confirmBtn);
-
-// helper to compute/format total
-function formatMoney(v) { return '$' + Number(v || 0).toFixed(2); }
-
-function updateOptionsTotal() {
-  // base price from chosen size (or default)
-  let basePrice = 0;
-  const chosenSizeEl = document.querySelector('#foodOptionsModal input[name="foodSize"]:checked');
-  if (chosenSizeEl && food.sizes && food.sizes[parseInt(chosenSizeEl.value)]) {
-    basePrice = Number(food.sizes[parseInt(chosenSizeEl.value)].price || 0);
-  } else if (food.sizes && food.sizes.length > 0) {
-    basePrice = Number(food.sizes[0].price || 0);
-  } else {
-    basePrice = Number(food.price || 0);
-  }
-
-  // extras
-  const extrasEls = Array.from(document.querySelectorAll('#foodOptionsModal input[name="foodExtra"]:checked'));
-  let extrasTotal = 0;
-  extrasEls.forEach(el => {
-    const p = parseFloat(el.getAttribute('data-price') || '0');
-    extrasTotal += (isNaN(p) ? 0 : p);
-  });
-
-  // quantity
-  const qtyEl = document.getElementById('optQuantity');
-  const qty = qtyEl ? (parseInt(qtyEl.value) || 1) : 1;
-
-  // unit + total
-  const unitPrice = Number((basePrice + extrasTotal).toFixed(2));
-  const total = Number((unitPrice * qty).toFixed(2));
-
-  // show: unit and grand total (helps user)
-  totalEl.innerHTML = `Unit: ${formatMoney(unitPrice)} &nbsp;&nbsp; × ${qty} = <span style="color:#0b74de;">${formatMoney(total)}</span>`;
-}
-
-// attach listeners to update total when user interacts
-// (size radios, extras checkboxes, quantity input)
-modal.querySelectorAll('input[name="foodSize"], input[name="foodExtra"], #optQuantity').forEach(el => {
-  el.addEventListener('input', updateOptionsTotal);
-  el.addEventListener('change', updateOptionsTotal);
-});
-
-// call once to initialize
-updateOptionsTotal();
-
-// ---- Better Add-to-cart handler which uses food.extras to get proper names ----
-confirmBtn.addEventListener('click', function() {
-  const qty = parseInt(document.getElementById('optQuantity').value) || 1;
-  const chosenSizeEl = document.querySelector('#foodOptionsModal input[name="foodSize"]:checked');
-  const sizeIdx = chosenSizeEl ? parseInt(chosenSizeEl.value) : null;
-
-  const extrasEls = Array.from(document.querySelectorAll('#foodOptionsModal input[name="foodExtra"]:checked'));
-  // map extras using the food.extras array (if present) to get clean names/prices
-  const extras = extrasEls.map(el => {
-    const id = el.value;
-    let price = parseFloat(el.getAttribute('data-price') || 0);
-    let name = id;
-    if (food.extras && Array.isArray(food.extras)) {
-      const found = food.extras.find(x => String(x.id) === String(id));
-      if (found) {
-        name = found.name;
-        price = Number(found.price || price || 0);
-      }
+    // close button
+    const closeBtn = document.getElementById('closeFoodOptions');
+    if (closeBtn) {
+      closeBtn.onclick = () => { modal.style.display = 'none'; };
     }
-    return { id, name, price: Number(price) };
-  });
-
-  addToCart(foodId, { quantity: qty, sizeIndex: sizeIdx, extras: extras });
-
-  // close modal and update
-  modal.style.display = 'none';
-  updateCartUI();
-});
-
   
-    modal.addEventListener('click', (e) => { if (e.target === modal) modal.style.display = 'none'; });
+    // clicking outside modal content closes it
+    modal.addEventListener('click', function onOuterClick(e) {
+      if (e.target === modal) {
+        modal.style.display = 'none';
+      }
+    });
+  
+    // helper format money (local copy to ensure available)
+    function formatMoney(v) { return '$' + Number(v || 0).toFixed(2); }
+  
+    // compute & show live total
+    function updateOptionsTotal() {
+      // base price from chosen size (or default)
+      let basePrice = 0;
+      const chosenSizeEl = document.querySelector('#foodOptionsModal input[name="foodSize"]:checked');
+      if (chosenSizeEl && food.sizes && food.sizes[parseInt(chosenSizeEl.value)]) {
+        basePrice = Number(food.sizes[parseInt(chosenSizeEl.value)].price || 0);
+      } else if (food.sizes && food.sizes.length > 0) {
+        basePrice = Number(food.sizes[0].price || 0);
+      } else {
+        basePrice = Number(food.price || 0);
+      }
+  
+      // extras
+      const extrasEls = Array.from(document.querySelectorAll('#foodOptionsModal input[name="foodExtra"]:checked'));
+      let extrasTotal = 0;
+      extrasEls.forEach(el => {
+        const p = parseFloat(el.getAttribute('data-price') || '0');
+        extrasTotal += (isNaN(p) ? 0 : p);
+      });
+  
+      const qtyEl = document.getElementById('optQuantity');
+      const qty = qtyEl ? (parseInt(qtyEl.value) || 1) : 1;
+  
+      const unitPrice = Number((basePrice + extrasTotal).toFixed(2));
+      const total = Number((unitPrice * qty).toFixed(2));
+  
+      const totalEl = document.getElementById('optionsTotal');
+      if (totalEl) totalEl.innerHTML = `Unit: ${formatMoney(unitPrice)} &nbsp; × ${qty} = <span style="color:#0b74de;">${formatMoney(total)}</span>`;
+    }
+  
+    // attach inputs listeners (use modal querySelector to limit scope)
+    const modalRoot = document.getElementById('foodOptionsModal');
+    if (modalRoot) {
+      // delegate: re-run for newly created inputs
+      const inputs = modalRoot.querySelectorAll('input[name="foodSize"], input[name="foodExtra"], #optQuantity');
+      inputs.forEach(el => {
+        el.addEventListener('input', updateOptionsTotal);
+        el.addEventListener('change', updateOptionsTotal);
+      });
+    }
+  
+    // initialize total display
+    updateOptionsTotal();
+  
+    // confirm add button: set onclick (replace any previous)
+    const confirmBtn = document.getElementById('confirmAddToCart');
+    if (confirmBtn) {
+      confirmBtn.onclick = function() {
+        const qty = parseInt(document.getElementById('optQuantity').value) || 1;
+        const chosenSizeEl = document.querySelector('#foodOptionsModal input[name="foodSize"]:checked');
+        const sizeIdx = chosenSizeEl ? parseInt(chosenSizeEl.value) : null;
+  
+        const extrasEls = Array.from(document.querySelectorAll('#foodOptionsModal input[name="foodExtra"]:checked'));
+        const extras = extrasEls.map(el => {
+          const id = el.value;
+          let price = parseFloat(el.getAttribute('data-price') || 0);
+          let name = id;
+          if (food.extras && Array.isArray(food.extras)) {
+            const found = food.extras.find(x => String(x.id) === String(id));
+            if (found) {
+              name = found.name;
+              price = Number(found.price || price || 0);
+            }
+          }
+          return { id, name, price: Number(price) };
+        });
+  
+        addToCart(foodId, { quantity: qty, sizeIndex: sizeIdx, extras: extras });
+  
+        // close modal & update UI
+        modal.style.display = 'none';
+        updateCartUI();
+      };
+    }
   }
+  
   
   function attachAddToCartButtons() {
     document.querySelectorAll('.add-to-cart').forEach(button => {
@@ -890,561 +1279,680 @@ confirmBtn.addEventListener('click', function() {
   function saveCartToLocalStorage() { localStorage.setItem('cart', JSON.stringify(cart)); }
   function loadCartFromLocalStorage() { const saved = localStorage.getItem('cart'); if (saved) cart = JSON.parse(saved); }
   
-  // Checkout / order-history functions kept the same (only ensure refreshOrderBell called where appropriate)
-  function checkout() {
-    if (cart.length === 0) { alert('Your cart is empty!'); return; }
-  
-    // build checkout modal (same UI you had)
-    let checkoutModal = document.getElementById('checkoutModal');
-// --- CHECKOUT: improved district/area UI (client-only 'other place') ---
-if (!checkoutModal) {
-  checkoutModal = document.createElement('div');
-  checkoutModal.id = 'checkoutModal';
-  checkoutModal.className = 'cart-modal';
-  checkoutModal.innerHTML = `
-    <div class="cart-content" style="width:90%; max-width:700px;">
-      <div class="cart-header"><h2>Checkout - Delivery Info</h2><span class="close-btn" id="closeCheckout">&times;</span></div>
-      <div class="cart-body" style="padding:20px;">
-        <div id="billPreview"></div>
 
-        <form id="checkoutForm">
-          <div style="margin-bottom:10px;">
-            <label for="custName">Name</label><br>
-            <input required id="custName" name="custName" type="text" value="${visitorName || ''}" placeholder="Customer name" />
-          </div>
+  /**
+ * Set a single button into loading state (adds spinner + disables).
+ * btn: DOM button element
+ * isLoading: boolean
+ * label: optional text to show while loading (defaults to "Processing...")
+ */
+function setButtonLoading(btn, isLoading, label) {
+  if (!btn) return;
+  if (isLoading) {
+    // preserve original state
+    if (btn.dataset._origHtml === undefined) btn.dataset._origHtml = btn.innerHTML;
+    if (btn.dataset._origDisabled === undefined) btn.dataset._origDisabled = String(btn.disabled || false);
 
-          <div style="margin-bottom:10px;">
-            <label for="custPhone">Phone</label><br>
-            <input required id="custPhone" name="custPhone" type="text" placeholder="Phone number" />
-          </div>
-
-          <div style="margin-bottom:10px;">
-            <label for="districtSelect">District (Banadir region)</label><br>
-            <select id="districtSelect" required style="width:100%; padding:8px; margin-top:6px;">
-              <!-- populated by JS -->
-            </select>
-          </div>
-
-          <div style="margin-bottom:10px;">
-            <label for="areaSelect">Nearest place / locality</label><br>
-            <select id="areaSelect" required style="width:100%; padding:8px; margin-top:6px;">
-              <option value="">Select area</option>
-            </select>
-          </div>
-
-          <!-- shown when user chooses Other for district -->
-          <div id="otherDistrictContainer" style="display:none; margin-bottom:10px;">
-            <label>Add other district</label><br>
-            <input id="otherDistrictInput" placeholder="New district name" style="width:70%; padding:8px; margin-top:6px;" />
-            <button id="saveOtherDistrict" type="button" class="btn-small" style="margin-left:8px;">Add district</button>
-          </div>
-
-          <!-- shown when user chooses Other for area (client only) -->
-          <div id="otherPlaceContainer" style="display:none; margin-bottom:10px;">
-            <label>Add other nearest place (this will only be saved for your device/session)</label><br>
-            <input id="otherPlace" placeholder="New nearest place / locality" style="width:70%; padding:8px; margin-top:6px;" />
-            <button id="saveOtherPlace" type="button" class="btn-small" style="margin-left:8px;">Use this place (for this order)</button>
-          </div>
-
-          <div style="text-align:center; margin-top:10px;">
-            <button type="submit" class="btn-primary">Confirm Order</button>
-          </div>
-        </form>
-      </div>
-    </div>
-  `;
-
-  document.body.appendChild(checkoutModal);
-
-  document.getElementById('closeCheckout').addEventListener('click', () => { checkoutModal.style.display = 'none'; });
-  checkoutModal.addEventListener('click', (e) => { if (e.target === checkoutModal) checkoutModal.style.display = 'none'; });
-
-  // ----- Districts / areas data for Banaadir (edit as needed) -----
-  const defaultDistrictAreas = {
-    "Hamarweyne": ["Bakara Market", "Shingani area", "Old Port"],
-    "Shangani": ["Shangani Market", "Coast Road"],
-    "Bondhere": ["Bondhere Market", "Afrika Hotel area"],
-    "Hodan": ["Taleex", "Albarako", "Tarabuun", "Digfeer", "Warshada Caanaha", "Soonakey", "Banaadir"],
-    "Wadajir": ["Madina", "Bakaara outskirts"],
-    "Daynile": ["Daynile main", "Airport road"],
-    "Dharkenley": ["Sodonka", "KM4 area"],
-    "Kaxda": ["Kaxda Market", "New residential"],
-    "Yaaqshiid": ["Intelligence quarter", "Stadium area"],
-    "Heliwa": ["Heliwa Market", "Surroundings"],
-    "Shibis": ["Shibis Market", "Upcountry road"]
-  };
-
-  // localStorage keys for custom districts only (NOT for per-order places)
-  const CUSTOM_DISTRICTS_KEY = 'customDistricts_v1';
-
-  function getCustomDistricts() {
-    try { return JSON.parse(localStorage.getItem(CUSTOM_DISTRICTS_KEY) || '[]'); } catch(e){ return []; }
-  }
-  function saveCustomDistricts(arr) {
-    try { localStorage.setItem(CUSTOM_DISTRICTS_KEY, JSON.stringify(arr || [])); } catch(e){ console.warn(e); }
-  }
-
-  // DOM refs
-  const districtSelect = document.getElementById('districtSelect');
-  const areaSelect = document.getElementById('areaSelect');
-  const otherDistrictContainer = document.getElementById('otherDistrictContainer');
-  const otherDistrictInput = document.getElementById('otherDistrictInput');
-  const saveOtherDistrictBtn = document.getElementById('saveOtherDistrict');
-  const otherPlaceContainer = document.getElementById('otherPlaceContainer');
-  const otherPlaceInput = document.getElementById('otherPlace');
-  const saveOtherPlaceBtn = document.getElementById('saveOtherPlace');
-
-  // temporary client-only area value (not persisted globally)
-  let tempClientArea = null;
-
-  function buildDistrictOptions() {
-    const custom = getCustomDistricts();
-    const districts = Object.keys(defaultDistrictAreas).slice();
-    custom.forEach(cd => { if (!districts.includes(cd)) districts.push(cd); });
-    districtSelect.innerHTML = '<option value="">Select district</option>';
-    districts.forEach(d => {
-      const opt = document.createElement('option'); opt.value = d; opt.textContent = d;
-      districtSelect.appendChild(opt);
-    });
-    const otherOpt = document.createElement('option'); otherOpt.value = 'Other'; otherOpt.textContent = 'Other (add new district)';
-    districtSelect.appendChild(otherOpt);
-  }
-
-  function populateAreasForDistrict(district) {
-    areaSelect.innerHTML = '<option value="">Select area</option>';
-    if (!district || district === 'Other') return;
-    const defaultList = defaultDistrictAreas[district] || [];
-    defaultList.forEach(a => {
-      const opt = document.createElement('option'); opt.value = a; opt.textContent = a;
-      areaSelect.appendChild(opt);
-    });
-    // add Other at bottom (client-local)
-    const otherOpt = document.createElement('option'); otherOpt.value = 'Other'; otherOpt.textContent = 'Other (add new nearest place)';
-    areaSelect.appendChild(otherOpt);
-  }
-
-  districtSelect.addEventListener('change', function() {
-    const d = this.value;
-    otherDistrictContainer.style.display = (d === 'Other') ? 'block' : 'none';
-    otherPlaceContainer.style.display = 'none';
-    tempClientArea = null;
-    if (d && d !== 'Other') {
-      populateAreasForDistrict(d);
-    } else {
-      areaSelect.innerHTML = '<option value="">Select area</option>';
+    btn.disabled = true;
+    btn.classList.add('btn-loading');
+    const spinner = `<span class="spinner" aria-hidden="true"></span>`;
+    btn.innerHTML = `${spinner}${label || 'Processing...'}`;
+    btn.setAttribute('aria-busy', 'true');
+  } else {
+    btn.classList.remove('btn-loading');
+    btn.removeAttribute('aria-busy');
+    // restore original html & disabled state
+    if (btn.dataset._origHtml !== undefined) {
+      btn.innerHTML = btn.dataset._origHtml;
+      delete btn.dataset._origHtml;
     }
-  });
-
-  areaSelect.addEventListener('change', function() {
-    const a = this.value;
-    otherPlaceContainer.style.display = (a === 'Other') ? 'block' : 'none';
-    // if user selects a real area from dropdown, ensure tempClientArea cleared
-    if (a && a !== 'Other') tempClientArea = null;
-  });
-
-  // Add new district (persist globally)
-  saveOtherDistrictBtn.addEventListener('click', function() {
-    const val = (otherDistrictInput.value || '').trim();
-    if (!val) { alert('Enter the district name'); return; }
-    const custom = getCustomDistricts();
-    if (!custom.includes(val)) {
-      custom.push(val);
-      saveCustomDistricts(custom);
-    }
-    buildDistrictOptions();
-    districtSelect.value = val;
-    otherDistrictInput.value = '';
-    otherDistrictContainer.style.display = 'none';
-    populateAreasForDistrict(val);
-    showToast(`Added district "${val}"`);
-  });
-
-  // Add new place (CLIENT ONLY: do NOT persist globally)
-  saveOtherPlaceBtn.addEventListener('click', function() {
-    const d = districtSelect.value;
-    if (!d || d === 'Other') { alert('Select a district first'); return; }
-    const val = (otherPlaceInput.value || '').trim();
-    if (!val) { alert('Enter the nearest place name'); return; }
-    // Do not save to global storage — only keep for this session/order
-    tempClientArea = val;
-    // add an option temporarily to the current areaSelect so it becomes selected
-    const opt = document.createElement('option'); opt.value = val; opt.textContent = val; opt.selected = true;
-    // remove possible "Other" option then readd it at bottom
-    const otherOption = Array.from(areaSelect.options).find(o => o.value === 'Other');
-    if (otherOption) areaSelect.removeChild(otherOption);
-    areaSelect.appendChild(opt);
-    const newOther = document.createElement('option'); newOther.value = 'Other'; newOther.textContent = 'Other (add new nearest place)';
-    areaSelect.appendChild(newOther);
-    otherPlaceInput.value = '';
-    otherPlaceContainer.style.display = 'none';
-    showToast(`Using nearest place "${val}" (this is local to your device)`);
-  });
-
-  // initial build
-  buildDistrictOptions();
-} // end checkoutModal exists
-
-// show modal
-checkoutModal.style.display = 'flex';
-
-// build bill preview (keeps original function behavior)
-buildBillPreviewHtml();
-
-// --- Replace checkout submit handler that saves order & opens payment modal ---
-document.getElementById('checkoutForm').addEventListener('submit', async function(e){
-  e.preventDefault();
-  const name = document.getElementById('custName').value.trim();
-  const phone = document.getElementById('custPhone').value.trim();
-  const district = document.getElementById('districtSelect').value;
-  // prefer tempClientArea if set, else areaSelect.value
-  const area = (typeof tempClientArea === 'string' && tempClientArea.length > 0) ? tempClientArea : (document.getElementById('areaSelect').value || '');
-  const otherPlace = ''; // we used tempClientArea instead of a persisted otherPlace field
-
-  const totalAmount = parseFloat(cartTotalEl ? cartTotalEl.textContent : '0') || cart.reduce((s,i)=> s + i.price*i.quantity, 0);
-  const localId = 'local_' + Date.now();
-
-  const orderObj = {
-    items: cart.map(i => ({ id: i.id, name: i.name, price: i.price, quantity: i.quantity, sizeName: i.sizeName || null, extras: (i.extras || []).map(e => ({ id: e.id, name: e.name, price: e.price })) })),
-    total: totalAmount,
-    timestamp: (new Date()).toISOString(),
-    visitorId: visitorId,
-    visitorName: name,
-    phone: phone,
-    district: district,
-    area: area,
-    otherPlace: '',
-    paymentStatus: 'pending',
-    status: 'pending',
-    localId
-  };
-
-  // Save locally
-  const localOrders = JSON.parse(localStorage.getItem('orders') || '[]');
-  localOrders.unshift({ ...orderObj });
-  localStorage.setItem('orders', JSON.stringify(localOrders));
-
-  // Save visitor name for UI
-// Save visitor name & phone for UI (persist locally)
-visitorName = name;
-localStorage.setItem('visitorName', visitorName);
-localStorage.setItem('visitorPhone', phone || '');
-const profileLink = document.getElementById('profileLink');
-if (profileLink) profileLink.textContent = visitorName || 'Login';
-
-  // Try to save remotely if DB present
-  let remoteRes = null;
-  if (window.FirebaseDB && typeof window.FirebaseDB.saveOrder === 'function') {
-    try {
-      remoteRes = await window.FirebaseDB.saveOrder(orderObj);
-      if (remoteRes && remoteRes.success) {
-        // attach remote id locally for reference
-        localOrders[0].remoteId = remoteRes.id;
-        localStorage.setItem('orders', JSON.stringify(localOrders));
-        orderObj.remoteId = remoteRes.id;
-        // --- Send order summary to restaurant WhatsApp (opens composer) ---
-try {
-  const waNumber = '617125558'; // restaurant WhatsApp number (use exactly as requested)
-  // build items text
-  const itemsText = (orderObj.items || []).map(it => {
-    const line = `${it.name}${it.sizeName ? ' ('+it.sizeName+')' : ''} x ${it.quantity} — $${(it.price * it.quantity).toFixed(2)}`;
-    const extras = (it.extras && it.extras.length) ? ` | Extras: ${it.extras.map(x=>x.name).join(', ')}` : '';
-    return line + extras;
-  }).join('\n');
-
-  const orderIdPart = orderObj.remoteId ? `Remote ID: ${orderObj.remoteId}\n` : '';
-  const msg =
-    `New order received\n` +
-    `${orderIdPart}` +
-    `Local ID: ${orderObj.localId}\n` +
-    `Customer: ${orderObj.visitorName || ''}\n` +
-    `Phone: ${orderObj.phone || ''}\n` +
-    `District: ${orderObj.district || ''}\n` +
-    `Area: ${orderObj.area || ''}\n\n` +
-    `Items:\n${itemsText}\n\n` +
-    `Total: $${(orderObj.total || 0).toFixed(2)}\n\n` +
-    `Notes: ${orderObj.otherPlace || ''}\n\n` +
-    `Please confirm.`;
-
-  const waUrl = `https://wa.me/${waNumber}?text=${encodeURIComponent(msg)}`;
-  // open a new tab/window to compose WhatsApp message (user must press send)
-  window.open(waUrl, '_blank');
-} catch (e) {
-  console.warn('WhatsApp send skipped', e);
-}
-
-      } else {
-        console.warn('Order save to Firestore failed; kept only locally', remoteRes && remoteRes.error);
-      }
-    } catch (err) {
-      console.warn('Order save error', err);
+    if (btn.dataset._origDisabled !== undefined) {
+      btn.disabled = (btn.dataset._origDisabled === 'true');
+      delete btn.dataset._origDisabled;
     }
   }
-
-  // Clear cart and UI
-  cart = [];
-  saveCartToLocalStorage();
-  updateCartUI();
-
-  // Close checkout modal
-  checkoutModal.style.display = 'none';
-
-  // Open payment modal and pass the order object (has localId and maybe remoteId)
-  openPaymentModal(orderObj);
-
-  refreshOrderBell();
-});
-
-  
-    checkoutModal.style.display = 'flex';
-    // build a simple human-readable bill preview showing sizes/extras
-function buildBillPreviewHtml() {
-  if (!document.getElementById('billPreview')) return;
-  if (!cart || cart.length === 0) {
-    document.getElementById('billPreview').innerHTML = '<div style="padding:12px; background:#fff; border-radius:6px;">Your cart is empty.</div>';
-    return;
-  }
-
-  let html = '<div style="background:#fff; padding:12px; border-radius:8px; margin-bottom:14px;">';
-  html += '<strong>Order preview:</strong><br/><br/>';
-  cart.forEach(ci => {
-    const extras = (ci.extras && ci.extras.length) ? ` | Extras: ${ci.extras.map(x => x.name).join(', ')}` : '';
-    const size = ci.sizeName ? ` | Size: ${ci.sizeName}` : '';
-    html += `- ${ci.name} ${size}${extras} x ${ci.quantity} = $${(ci.price * ci.quantity).toFixed(2)}<br/>`;
-  });
-  const total = cart.reduce((s,i)=> s + i.price * i.quantity, 0);
-  html += `<br/><strong>Total: $${total.toFixed(2)}</strong>`;
-  html += '</div>';
-  document.getElementById('billPreview').innerHTML = html;
-}
-// ---------------------------
-// Fixed-restaurant USSD helper
-// ---------------------------
-// ---------------------------
-// Fixed-restaurant USSD helper (keep exact 2-decimal amount)
-// ---------------------------
-function generateUSSD(operator, amount) {
-  // Restaurant (fixed) numbers — change these if you want different restaurant numbers later
-  const RESTAURANT_NUMBERS = {
-    'Hormuud': '67125558',   // *712*67125558*AMOUNT#
-    'Somtel':  '627125558'   // *110*627125558*AMOUNT#
-  };
-
-  // Ensure amount is shown exactly with 2 decimals (no rounding to integer)
-  const amtNum = Number(amount) || 0;
-  const amtStr = amtNum.toFixed(2); // "9.90", "12.50", etc.
-
-  if (operator === 'Hormuud') return `*712*${RESTAURANT_NUMBERS['Hormuud']}*${amtStr}#`;
-  if (operator === 'Somtel')  return `*110*${RESTAURANT_NUMBERS['Somtel']}*${amtStr}#`;
-
-  // fallback to Hormuud format
-  return `*712*${RESTAURANT_NUMBERS['Hormuud']}*${amtStr}#`;
 }
 
 
-// ---------------------------
-// Payment modal (uses fixed restaurant numbers in USSD)
-// ---------------------------
-function openPaymentModal(order) {
-  const total = order && order.total ? Number(order.total) : 0;
-  const displayTotal = total.toFixed(2);
+// Checkout / order-history functions kept the same (only ensure refreshOrderBell called where appropriate)
+function checkout() {
+  if (cart.length === 0) { alert('Your cart is empty!'); return; }
 
-  // Recipient input still prefilled from order or saved visitorPhone for user's convenience,
-  // but the USSD will always use the restaurant number defined in generateUSSD().
-  const defaultRecipient = order && order.phone ? order.phone : (localStorage.getItem('visitorPhone') || '617125558');
+  // build checkout modal (same UI you had)
+  let checkoutModal = document.getElementById('checkoutModal');
+  // --- CHECKOUT: improved district/area UI (client-only 'other place') ---
+  if (!checkoutModal) {
+    checkoutModal = document.createElement('div');
+    checkoutModal.id = 'checkoutModal';
+    checkoutModal.className = 'cart-modal';
+    checkoutModal.innerHTML = `
+      <div class="cart-content" style="width:90%; max-width:700px;">
+        <div class="cart-header"><h2>Checkout - Delivery Info</h2><span class="close-btn" id="closeCheckout">&times;</span></div>
+        <div class="cart-body" style="padding:20px;">
+          <div id="billPreview"></div>
 
-  let payModal = document.getElementById('paymentModal');
-  if (!payModal) {
-    payModal = document.createElement('div');
-    payModal.id = 'paymentModal';
-    payModal.className = 'cart-modal';
-    payModal.innerHTML = `
-      <div class="cart-content" style="width:90%; max-width:520px;">
-        <div class="cart-header"><h2>Payment</h2><span class="close-btn" id="closePaymentModal">&times;</span></div>
-        <div class="cart-body" style="padding:18px;">
-          <p>Please use one of the USSD codes below to pay, or choose 'I'll pay on delivery'.</p>
-
-          <div style="margin-bottom:10px;">
-            <label>Operator</label><br/>
-            <select id="payOperator" style="width:100%; padding:8px; margin-top:6px;">
-              <option value="Hormuud">Hormuud (EVC+)</option>
-              <option value="Somtel">Somtel</option>
-            </select>
-          </div>
-
-          <div style="margin-bottom:10px;">
-            <label>Recipient number (for your reference)</label><br/>
-            <input id="payRecipient" type="text" value="${defaultRecipient}" style="width:100%; padding:8px; margin-top:6px;" />
-            <small style="color:#666;">You can edit this field for convenience, but the USSD dial code will always send to the restaurant's fixed number.</small>
-          </div>
-
-          <div style="margin-bottom:10px;">
-            <label>Amount</label><br/>
-            <input id="payAmount" type="text" value="${displayTotal}" style="width:100%; padding:8px; margin-top:6px;" readonly />
-            <small style="color:#666;">(Amount is read-only and will be used in the USSD.)</small>
-          </div>
-
-          <div style="margin:14px 0; background:#f8fafc; padding:10px; border-radius:8px;">
-            <div style="display:flex; gap:8px; align-items:center; justify-content:space-between;">
-              <div style="flex:1; min-width:0;">
-                <div style="font-size:13px; color:#333;">USSD Code (restaurant number is fixed)</div>
-                <div id="ussdCode" style="word-break:break-all; font-weight:700; margin-top:6px;">...</div>
-                <div style="font-size:13px; color:#666;">Tap Dial to open your phone dialer with the code (mobile only).</div>
-              </div>
-              <div style="display:flex; flex-direction:column; gap:8px; margin-left:8px;">
-                <button id="copyUssdBtn" class="btn-small">Copy</button>
-                <a id="dialUssdBtn" class="btn-small" style="text-decoration:none; display:inline-block;">Dial</a>
-              </div>
+          <form id="checkoutForm">
+            <div style="margin-bottom:10px;">
+              <label for="custName">Name</label><br>
+              <input required id="custName" name="custName" type="text" value="${visitorName || ''}" placeholder="Customer name" />
             </div>
-          </div>
 
-          <div style="text-align:center; margin-top:10px; display:flex; gap:8px; justify-content:center; flex-wrap:wrap;">
-            <button id="paidNotifyBtn" class="btn-primary">I've Paid — Notify</button>
-            <button id="codBtn" class="btn-small">I'll pay on delivery</button>
-            <button id="closePaymentBtn" class="btn-small">Done</button>
-          </div>
+            <div style="margin-bottom:10px;">
+              <label for="custPhone">Phone</label><br>
+              <input required id="custPhone" name="custPhone" type="text" value="${localStorage.getItem('visitorPhone') || ''}" placeholder="Phone number" style="width:100%; padding:8px; margin-top:6px;" />
+            </div>
+
+            <div style="margin-bottom:10px;">
+              <label for="districtSelect">District (Banadir region)</label><br>
+              <select id="districtSelect" required style="width:100%; padding:8px; margin-top:6px;">
+                <!-- populated by JS -->
+              </select>
+            </div>
+
+            <div style="margin-bottom:10px;">
+              <label for="areaSelect">Nearest place / locality</label><br>
+              <select id="areaSelect" required style="width:100%; padding:8px; margin-top:6px;">
+                <option value="">Select area</option>
+              </select>
+            </div>
+
+            <!-- shown when user chooses Other for district -->
+            <div id="otherDistrictContainer" style="display:none; margin-bottom:10px;">
+              <label>Add other district</label><br>
+              <input id="otherDistrictInput" placeholder="New district name" style="width:70%; padding:8px; margin-top:6px;" />
+              <button id="saveOtherDistrict" type="button" class="btn-small" style="margin-left:8px;">Add district</button>
+            </div>
+
+            <!-- shown when user chooses Other for area (client only) -->
+            <div id="otherPlaceContainer" style="display:none; margin-bottom:10px;">
+              <label>Add other nearest place (this will only be saved for your device/session)</label><br>
+              <input id="otherPlace" placeholder="New nearest place / locality" style="width:70%; padding:8px; margin-top:6px;" />
+              <button id="saveOtherPlace" type="button" class="btn-small" style="margin-left:8px;">Use this place (for this order)</button>
+            </div>
+
+            <div style="text-align:center; margin-top:10px;">
+              <button type="submit" class="btn-primary">Confirm Order</button>
+            </div>
+          </form>
         </div>
       </div>
     `;
-    document.body.appendChild(payModal);
 
-    // close handlers
-    document.getElementById('closePaymentModal').addEventListener('click', () => payModal.style.display = 'none');
-    document.getElementById('closePaymentBtn').addEventListener('click', () => payModal.style.display = 'none');
+    document.body.appendChild(checkoutModal);
 
-    // Rebuild USSD string (IMPORTANT: uses the fixed restaurant number from generateUSSD)
-    function refreshUSSD() {
-      const op = document.getElementById('payOperator').value;
-      // take exact displayed value (string) and if empty use total with two decimals
-      const rawAmt = (document.getElementById('payAmount').value || '').trim();
-      const amt = rawAmt.length > 0 ? rawAmt : total.toFixed(2);
-      const ussd = generateUSSD(op, amt);
-      document.getElementById('ussdCode').textContent = ussd;
-      const encoded = encodeURIComponent(ussd);
-      const telHref = `tel:${encoded}`;
-      const dialBtn = document.getElementById('dialUssdBtn');
-      dialBtn.setAttribute('href', telHref);
-      dialBtn.setAttribute('onclick', `window.location.href='${telHref}'; return false;`);
+    document.getElementById('closeCheckout').addEventListener('click', () => { checkoutModal.style.display = 'none'; });
+    checkoutModal.addEventListener('click', (e) => { if (e.target === checkoutModal) checkoutModal.style.display = 'none'; });
+
+    // ----- Districts / areas data for Banaadir (edit as needed) -----
+    const defaultDistrictAreas = {
+      "Hamarweyne": ["Bakara Market", "Shingani area", "Old Port"],
+      "Shangani": ["Shangani Market", "Coast Road"],
+      "Bondhere": ["Bondhere Market", "Afrika Hotel area"],
+      "Hodan": ["Taleex", "Albarako", "Tarabuun", "Digfeer", "Warshada Caanaha", "Soonakey", "Banaadir"],
+      "Wadajir": ["Madina", "Bakaara outskirts"],
+      "Daynile": ["Daynile main", "Airport road"],
+      "Dharkenley": ["Sodonka", "KM4 area"],
+      "Kaxda": ["Kaxda Market", "New residential"],
+      "Yaaqshiid": ["Intelligence quarter", "Stadium area"],
+      "Heliwa": ["Heliwa Market", "Surroundings"],
+      "Shibis": ["Shibis Market", "Upcountry road"]
+    };
+
+    // Helpers shared between login & checkout to persist custom districts/areas
+    const CUSTOM_DISTRICTS_KEY = 'customDistricts_v1';
+    const CUSTOM_AREAS_KEY = 'customAreas_v1';
+
+    function getCustomDistricts() {
+      try { return JSON.parse(localStorage.getItem(CUSTOM_DISTRICTS_KEY) || '[]'); } catch(e){ return []; }
     }
-    
-    // Attach events: operator change or amount (amount is read-only but we still rebuild if anything changes)
-    document.getElementById('payOperator').addEventListener('change', refreshUSSD);
-    // keep recipient input editable for user's convenience but DO NOT use it to build the USSD
-    document.getElementById('payRecipient').addEventListener('input', function(){ /* no-op for USSD generation */ });
+    function saveCustomDistricts(arr) {
+      try { localStorage.setItem(CUSTOM_DISTRICTS_KEY, JSON.stringify(arr || [])); } catch(e){ console.warn(e); }
+    }
+    function getCustomAreas() {
+      try { return JSON.parse(localStorage.getItem(CUSTOM_AREAS_KEY) || '{}'); } catch(e){ return {}; }
+    }
+    function saveCustomAreas(obj) {
+      try { localStorage.setItem(CUSTOM_AREAS_KEY, JSON.stringify(obj || {})); } catch(e){ console.warn(e); }
+    }
 
-    // copy USSD
-    document.getElementById('copyUssdBtn').addEventListener('click', async function(){
-      const txt = document.getElementById('ussdCode').textContent;
-      try {
-        await navigator.clipboard.writeText(txt);
-        showToast('USSD code copied to clipboard');
-      } catch (err) {
-        const ta = document.createElement('textarea');
-        ta.value = txt;
-        document.body.appendChild(ta);
-        ta.select();
-        try { document.execCommand('copy'); showToast('USSD copied'); } catch(e){ alert('Copy failed, please copy manually: ' + txt); }
-        ta.remove();
+    // DOM refs
+    const districtSelect = document.getElementById('districtSelect');
+    const areaSelect = document.getElementById('areaSelect');
+    const otherDistrictContainer = document.getElementById('otherDistrictContainer');
+    const otherDistrictInput = document.getElementById('otherDistrictInput');
+    const saveOtherDistrictBtn = document.getElementById('saveOtherDistrict');
+    const otherPlaceContainer = document.getElementById('otherPlaceContainer');
+    const otherPlaceInput = document.getElementById('otherPlace');
+    const saveOtherPlaceBtn = document.getElementById('saveOtherPlace');
+
+    // temporary client-only area value (not persisted globally)
+    let tempClientArea = null;
+
+    function buildDistrictOptions() {
+      const custom = getCustomDistricts();
+      const districts = Object.keys(defaultDistrictAreas).slice();
+      custom.forEach(cd => { if (!districts.includes(cd)) districts.push(cd); });
+      districtSelect.innerHTML = '<option value="">Select district</option>';
+      districts.forEach(d => {
+        const opt = document.createElement('option'); opt.value = d; opt.textContent = d;
+        districtSelect.appendChild(opt);
+      });
+      const otherOpt = document.createElement('option'); otherOpt.value = 'Other'; otherOpt.textContent = 'Other (add new district)';
+      districtSelect.appendChild(otherOpt);
+    }
+
+    function populateAreasForDistrict(district) {
+      areaSelect.innerHTML = '<option value="">Select area</option>';
+      if (!district || district === 'Other') return;
+      const defaultList = defaultDistrictAreas[district] || [];
+      const customAreasObj = getCustomAreas();
+      const savedForDistrict = Array.isArray(customAreasObj[district]) ? customAreasObj[district] : [];
+      const merged = defaultList.slice();
+      savedForDistrict.forEach(x => { if (!merged.includes(x)) merged.push(x); });
+      merged.forEach(a => {
+        const opt = document.createElement('option'); opt.value = a; opt.textContent = a;
+        areaSelect.appendChild(opt);
+      });
+      // add Other at bottom (client-local)
+      const otherOpt = document.createElement('option'); otherOpt.value = 'Other'; otherOpt.textContent = 'Other (add new nearest place)';
+      areaSelect.appendChild(otherOpt);
+    }
+
+    districtSelect.addEventListener('change', function() {
+      const d = this.value;
+      otherDistrictContainer.style.display = (d === 'Other') ? 'block' : 'none';
+      otherPlaceContainer.style.display = 'none';
+      tempClientArea = null;
+      if (d && d !== 'Other') {
+        populateAreasForDistrict(d);
+      } else {
+        areaSelect.innerHTML = '<option value="">Select area</option>';
       }
     });
 
+    areaSelect.addEventListener('change', function() {
+      const a = this.value;
+      otherPlaceContainer.style.display = (a === 'Other') ? 'block' : 'none';
+      // if user selects a real area from dropdown, ensure tempClientArea cleared
+      if (a && a !== 'Other') tempClientArea = null;
+    });
 
-document.getElementById('paidNotifyBtn').addEventListener('click', async function() {
-  try {
-    const orders = JSON.parse(localStorage.getItem('orders') || '[]');
-    const idx = orders.findIndex(o => (order.localId && o.localId === order.localId) || (order.remoteId && o.remoteId === order.remoteId));
-    if (idx !== -1) {
-      orders[idx].paymentStatus = 'paid';
-      orders[idx].status = 'pending'; // keep pending until admin confirms
-      orders[idx].visitorName = orders[idx].visitorName || (localStorage.getItem('visitorName') || order.visitorName || '');
-      orders[idx].phone = orders[idx].phone || (localStorage.getItem('visitorPhone') || order.phone || '');
-      // store client location timestamp if available
-      orders[idx].clientLocation = orders[idx].clientLocation || null;
-      localStorage.setItem('orders', JSON.stringify(orders));
+    // Add new district (persist globally)
+    saveOtherDistrictBtn.addEventListener('click', function() {
+      const val = (otherDistrictInput.value || '').trim();
+      if (!val) { alert('Enter the district name'); return; }
+      const custom = getCustomDistricts();
+      if (!custom.includes(val)) {
+        custom.push(val);
+        saveCustomDistricts(custom);
+      }
+      // rebuild and select new district
+      buildDistrictOptions();
+      districtSelect.value = val;
+      otherDistrictInput.value = '';
+      otherDistrictContainer.style.display = 'none';
+      populateAreasForDistrict(val);
+      showToast && showToast(`Added district "${val}"`);
+    });
+
+    // Add new place (CLIENT ONLY: do NOT persist globally)
+    saveOtherPlaceBtn.addEventListener('click', function() {
+      const d = districtSelect.value;
+      if (!d || d === 'Other') { alert('Select a district first'); return; }
+      const val = (otherPlaceInput.value || '').trim();
+      if (!val) { alert('Enter the nearest place name'); return; }
+      // Do not save to global storage — only keep for this session/order
+      tempClientArea = val;
+      // add an option temporarily to the current areaSelect so it becomes selected
+      const opt = document.createElement('option'); opt.value = val; opt.textContent = val; opt.selected = true;
+      // remove possible "Other" option then readd it at bottom
+      const otherOption = Array.from(areaSelect.options).find(o => o.value === 'Other');
+      if (otherOption) areaSelect.removeChild(otherOption);
+      areaSelect.appendChild(opt);
+      const newOther = document.createElement('option'); newOther.value = 'Other'; newOther.textContent = 'Other (add new nearest place)';
+      areaSelect.appendChild(newOther);
+      otherPlaceInput.value = '';
+      otherPlaceContainer.style.display = 'none';
+      showToast && showToast(`Using nearest place "${val}" (this is local to your device)`);
+    });
+
+    // initial build
+    buildDistrictOptions();
+
+    // --- PREFILL checkout fields from localStorage (name, phone, district, area) ---
+    (function prefillCheckoutFields() {
+      try {
+        const nameSaved = localStorage.getItem('visitorName') || '';
+        const phoneSaved = localStorage.getItem('visitorPhone') || '';
+        const savedDistrict = localStorage.getItem('visitorDistrict') || '';
+        const savedArea = localStorage.getItem('visitorArea') || '';
+
+        const custNameEl = document.getElementById('custName');
+        const custPhoneEl = document.getElementById('custPhone');
+        const districtSelectNow = document.getElementById('districtSelect');
+        const areaSelectNow = document.getElementById('areaSelect');
+
+        // quick fill for name/phone if fields empty
+        if (custNameEl && !custNameEl.value) custNameEl.value = nameSaved;
+        if (custPhoneEl && !custPhoneEl.value) custPhoneEl.value = phoneSaved;
+
+        // delay a tiny bit so options exist (safe microtask)
+        setTimeout(() => {
+          try {
+            if (districtSelectNow && savedDistrict) {
+              // if savedDistrict missing from options -> add to custom districts & rebuild
+              const hasDistrictOpt = Array.from(districtSelectNow.options).some(o => o.value === savedDistrict);
+              if (!hasDistrictOpt) {
+                const custom = getCustomDistricts();
+                if (!custom.includes(savedDistrict)) {
+                  custom.push(savedDistrict);
+                  saveCustomDistricts(custom);
+                }
+                // rebuild so the new district appears
+                buildDistrictOptions();
+              }
+
+              // set the district, then populate the areas dropdown
+              districtSelectNow.value = savedDistrict;
+              populateAreasForDistrict(savedDistrict);
+
+              if (areaSelectNow && savedArea) {
+                const hasAreaOpt = Array.from(areaSelectNow.options).some(o => o.value === savedArea);
+                if (!hasAreaOpt) {
+                  // persist savedArea into customAreas for that district so it appears next time
+                  const obj = getCustomAreas();
+                  obj[savedDistrict] = obj[savedDistrict] || [];
+                  if (!obj[savedDistrict].includes(savedArea)) {
+                    obj[savedDistrict].push(savedArea);
+                    saveCustomAreas(obj);
+                  }
+                  // repopulate to pick up the persisted custom area
+                  populateAreasForDistrict(savedDistrict);
+                }
+                areaSelectNow.value = savedArea;
+              }
+            }
+          } catch (err) { console.warn('prefill checkout (inner) failed', err); }
+        }, 10);
+      } catch (err) { console.warn('prefill checkout failed', err); }
+    })();
+
+  } // end checkoutModal exists
+
+  // show modal
+  checkoutModal.style.display = 'flex';
+
+  // build bill preview (keeps original function behavior)
+  buildBillPreviewHtml();
+
+  // --- Replace checkout submit handler that saves order & opens payment modal ---
+  // remove previous listener if any (defensive)
+  try { document.getElementById('checkoutForm').removeEventListener && document.getElementById('checkoutForm').removeEventListener('submit', window.__checkoutFormHandler); } catch(e){}
+
+  window.__checkoutFormHandler = async function(e){
+    e.preventDefault();
+  
+    // find the submit button and set loading
+    const submitBtn = document.querySelector('#checkoutForm button[type="submit"]');
+    setButtonLoading(submitBtn, true, 'Processing order...');
+  
+    try {
+      const name = document.getElementById('custName').value.trim();
+      const phone = document.getElementById('custPhone').value.trim();
+      const district = document.getElementById('districtSelect').value;
+      // prefer tempClientArea if set, else areaSelect.value
+      const area = (typeof tempClientArea === 'string' && tempClientArea.length > 0) ? tempClientArea : (document.getElementById('areaSelect').value || '');
+      const otherPlace = ''; // we used tempClientArea instead of a persisted otherPlace field
+  
+      const totalAmount = parseFloat(cartTotalEl ? cartTotalEl.textContent : '0') || cart.reduce((s,i)=> s + i.price*i.quantity, 0);
+      const localId = 'local_' + Date.now();
+  
+      const orderObj = {
+        items: cart.map(i => ({ id: i.id, name: i.name, price: i.price, quantity: i.quantity, sizeName: i.sizeName || null, extras: (i.extras || []).map(e => ({ id: e.id, name: e.name, price: e.price })) })),
+        total: totalAmount,
+        timestamp: (new Date()).toISOString(),
+        visitorId: visitorId,
+        visitorName: name,
+        phone: phone,
+        district: district,
+        area: area,
+        otherPlace: '',
+        paymentStatus: 'pending',
+        status: 'pending',
+        localId
+      };
+  
+      // Save locally
+      const localOrders = JSON.parse(localStorage.getItem('orders') || '[]');
+      localOrders.unshift({ ...orderObj });
+      localStorage.setItem('orders', JSON.stringify(localOrders));
+  
+      // Save visitor name & phone & location for UI (persist locally)
+      visitorName = name;
+      try {
+        localStorage.setItem('visitorName', visitorName);
+        localStorage.setItem('visitorPhone', phone || '');
+        localStorage.setItem('visitorDistrict', district || '');
+        localStorage.setItem('visitorArea', area || '');
+      } catch(err) { console.warn('persist visitor data failed', err); }
+  
+      const profileLink = document.getElementById('profileLink');
+      if (profileLink) profileLink.textContent = visitorName || 'Login';
+  
+      // Try to save remotely if DB present
+      let remoteRes = null;
+      if (window.FirebaseDB && typeof window.FirebaseDB.saveOrder === 'function') {
+        try {
+          remoteRes = await window.FirebaseDB.saveOrder(orderObj);
+          if (remoteRes && remoteRes.success) {
+            // attach remote id locally for reference
+            localOrders[0].remoteId = remoteRes.id;
+            localStorage.setItem('orders', JSON.stringify(localOrders));
+            orderObj.remoteId = remoteRes.id;
+            // --- Send order summary to restaurant WhatsApp (opens composer) ---
+            try {
+              const waNumber = '617125558'; // restaurant WhatsApp number (use exactly as requested)
+              // build items text
+              const itemsText = (orderObj.items || []).map(it => {
+                const line = `${it.name}${it.sizeName ? ' ('+it.sizeName+')' : ''} x ${it.quantity} — $${(it.price * it.quantity).toFixed(2)}`;
+                const extras = (it.extras && it.extras.length) ? ` | Extras: ${it.extras.map(x=>x.name).join(', ')}` : '';
+                return line + extras;
+              }).join('\n');
+  
+              const orderIdPart = orderObj.remoteId ? `Remote ID: ${orderObj.remoteId}\n` : '';
+              const msg =
+                `New order received\n` +
+                `${orderIdPart}` +
+                `Local ID: ${orderObj.localId}\n` +
+                `Customer: ${orderObj.visitorName || ''}\n` +
+                `Phone: ${orderObj.phone || ''}\n` +
+                `District: ${orderObj.district || ''}\n` +
+                `Area: ${orderObj.area || ''}\n\n` +
+                `Items:\n${itemsText}\n\n` +
+                `Total: $${(orderObj.total || 0).toFixed(2)}\n\n` +
+                `Notes: ${orderObj.otherPlace || ''}\n\n` +
+                `Please confirm.`;
+  
+              const waUrl = `https://wa.me/${waNumber}?text=${encodeURIComponent(msg)}`;
+              // open a new tab/window to compose WhatsApp message (user must press send)
+              window.open(waUrl, '_blank');
+            } catch (e) {
+              console.warn('WhatsApp send skipped', e);
+            }
+          } else {
+            console.warn('Order save to Firestore failed; kept only locally', remoteRes && remoteRes.error);
+          }
+        } catch (err) {
+          console.warn('Order save error', err);
+        }
+      }
+  
+      // Clear cart and UI
+      cart = [];
+      saveCartToLocalStorage();
+      updateCartUI();
+  
+      // Close checkout modal
+      checkoutModal.style.display = 'none';
+  
+      // Open payment modal and pass the order object (has localId and maybe remoteId)
+      openPaymentModal(orderObj);
+  
+      refreshOrderBell();
+    } catch (err) {
+      console.error('Order processing failed', err);
+      showToast && showToast('Failed to place order. Please try again.');
+    } finally {
+      // always restore the button state
+      setButtonLoading(submitBtn, false);
     }
-  } catch (err) { console.warn('update local order paid failed', err); }
+  };
+  
+  document.getElementById('checkoutForm').addEventListener('submit', window.__checkoutFormHandler);
 
-  // Try server updates (non-blocking)
-  try {
-    if (window.FirebaseDB && typeof window.FirebaseDB.updateOrderPaymentStatus === 'function') {
-      await window.FirebaseDB.updateOrderPaymentStatus(order.remoteId || order.localId || order.localId, 'paid');
+  checkoutModal.style.display = 'flex';
+
+  // build a simple human-readable bill preview showing sizes/extras
+  function buildBillPreviewHtml() {
+    if (!document.getElementById('billPreview')) return;
+    if (!cart || cart.length === 0) {
+      document.getElementById('billPreview').innerHTML = '<div style="padding:12px; background:#fff; border-radius:6px;">Your cart is empty.</div>';
+      return;
     }
-    if (window.FirebaseDB && typeof window.FirebaseDB.notifyPayment === 'function') {
-      await window.FirebaseDB.notifyPayment(order.remoteId || order.localId || order.localId, { paid: true });
-    }
-  } catch (e) { console.warn('server payment notify failed', e); }
 
-  const name = (order && (order.visitorName || localStorage.getItem('visitorName'))) || 'Customer';
-  showToast(`Thanks, ${name}! We marked your payment as PAID. Admin will confirm.`, 2200, 'confirmed');
-
-  payModal.style.display = 'none';
-  refreshOrderBell();
-  refreshVisitorOrderHistoryUI();
-});
-
-document.getElementById('codBtn').addEventListener('click', async function() {
-  try {
-    const orders = JSON.parse(localStorage.getItem('orders') || '[]');
-    const idx = orders.findIndex(o => (order.localId && o.localId === order.localId) || (order.remoteId && o.remoteId === order.remoteId));
-    if (idx !== -1) {
-      orders[idx].paymentStatus = 'cod';
-      orders[idx].status = 'pending';
-      orders[idx].visitorName = orders[idx].visitorName || (localStorage.getItem('visitorName') || order.visitorName || '');
-      orders[idx].phone = orders[idx].phone || (localStorage.getItem('visitorPhone') || order.phone || '');
-      localStorage.setItem('orders', JSON.stringify(orders));
-    }
-  } catch (err) { console.warn('mark COD failed', err); }
-
-  try {
-    if (window.FirebaseDB && typeof window.FirebaseDB.updateOrderPaymentStatus === 'function') {
-      await window.FirebaseDB.updateOrderPaymentStatus(order.remoteId || order.localId || order.localId, 'cod');
-    }
-    if (window.FirebaseDB && typeof window.FirebaseDB.notifyPayment === 'function') {
-      await window.FirebaseDB.notifyPayment(order.remoteId || order.localId || order.localId, { paid: false, method: 'cod' });
-    }
-  } catch (e) { console.warn('server COD notify failed', e); }
-
-  const name = (order && (order.visitorName || localStorage.getItem('visitorName'))) || 'Customer';
-  showToast(`Thanks, ${name}! We'll collect payment on delivery.`, 2000, 'info');
-
-  payModal.style.display = 'none';
-  refreshOrderBell();
-  refreshVisitorOrderHistoryUI();
-});
-
-
-   
-
-  } // end create modal
-
-  // Ensure fields reflect current order each time modal opens
-  const payAmountEl = document.getElementById('payAmount');
-  const payRecipientEl = document.getElementById('payRecipient');
-  const payOperatorEl = document.getElementById('payOperator');
-
-  if (payAmountEl) {
-    payAmountEl.value = displayTotal;
-    payAmountEl.setAttribute('readonly','');
+    let html = '<div style="background:#fff; padding:12px; border-radius:8px; margin-bottom:14px;">';
+    html += '<strong>Order preview:</strong><br/><br/>';
+    cart.forEach(ci => {
+      const extras = (ci.extras && ci.extras.length) ? ` | Extras: ${ci.extras.map(x => x.name).join(', ')}` : '';
+      const size = ci.sizeName ? ` | Size: ${ci.sizeName}` : '';
+      html += `- ${ci.name} ${size}${extras} x ${ci.quantity} = $${(ci.price * ci.quantity).toFixed(2)}<br/>`;
+    });
+    const total = cart.reduce((s,i)=> s + i.price * i.quantity, 0);
+    html += `<br/><strong>Total: $${total.toFixed(2)}</strong>`;
+    html += '</div>';
+    document.getElementById('billPreview').innerHTML = html;
   }
-  if (payRecipientEl) payRecipientEl.value = order && order.phone ? order.phone : (localStorage.getItem('visitorPhone') || defaultRecipient);
-  if (payOperatorEl) payOperatorEl.value = 'Hormuud';
 
-  // initial USSD build and show modal
-  const opEl = document.getElementById('payOperator');
-  if (opEl) opEl.dispatchEvent(new Event('change'));
-  const pm = document.getElementById('paymentModal');
-  if (pm) pm.style.display = 'flex';
+  // ---------------------------
+  // Fixed-restaurant USSD helper
+  // ---------------------------
+  // Fixed-restaurant USSD helper (keep exact 2-decimal amount)
+  function generateUSSD(operator, amount) {
+    // Restaurant (fixed) numbers — change these if you want different restaurant numbers later
+    const RESTAURANT_NUMBERS = {
+      'Hormuud': '67125558',   // *712*67125558*AMOUNT#
+      'Somtel':  '627125558'   // *110*627125558*AMOUNT#
+    };
+
+    // Ensure amount is shown exactly with 2 decimals (no rounding to integer)
+    const amtNum = Number(amount) || 0;
+    const amtStr = amtNum.toFixed(2); // "9.90", "12.50", etc.
+
+    if (operator === 'Hormuud') return `*712*${RESTAURANT_NUMBERS['Hormuud']}*${amtStr}#`;
+    if (operator === 'Somtel')  return `*110*${RESTAURANT_NUMBERS['Somtel']}*${amtStr}#`;
+
+    // fallback to Hormuud format
+    return `*712*${RESTAURANT_NUMBERS['Hormuud']}*${amtStr}#`;
+  }
+
+  // ---------------------------
+  // Payment modal (uses fixed restaurant numbers in USSD)
+  // ---------------------------
+  function openPaymentModal(order) {
+    const total = order && order.total ? Number(order.total) : 0;
+    const displayTotal = total.toFixed(2);
+
+    // Recipient input still prefilled from order or saved visitorPhone for user's convenience,
+    // but the USSD will always use the restaurant number defined in generateUSSD().
+    const defaultRecipient = order && order.phone ? order.phone : (localStorage.getItem('visitorPhone') || '617125558');
+
+    let payModal = document.getElementById('paymentModal');
+    if (!payModal) {
+      payModal = document.createElement('div');
+      payModal.id = 'paymentModal';
+      payModal.className = 'cart-modal';
+      payModal.innerHTML = `
+        <div class="cart-content" style="width:90%; max-width:520px;">
+          <div class="cart-header"><h2>Payment</h2><span class="close-btn" id="closePaymentModal">&times;</span></div>
+          <div class="cart-body" style="padding:18px;">
+            <p>Please use one of the USSD codes below to pay, or choose 'I'll pay on delivery'.</p>
+
+            <div style="margin-bottom:10px;">
+              <label>Operator</label><br/>
+              <select id="payOperator" style="width:100%; padding:8px; margin-top:6px;">
+                <option value="Hormuud">Hormuud (EVC+)</option>
+                <option value="Somtel">Somtel</option>
+              </select>
+            </div>
+
+            <div style="margin-bottom:10px;">
+              <label>Recipient number (for your reference)</label><br/>
+              <input id="payRecipient" type="text" value="${defaultRecipient}" style="width:100%; padding:8px; margin-top:6px;" />
+              <small style="color:#666;">You can edit this field for convenience, but the USSD dial code will always send to the restaurant's fixed number.</small>
+            </div>
+
+            <div style="margin-bottom:10px;">
+              <label>Amount</label><br/>
+              <input id="payAmount" type="text" value="${displayTotal}" style="width:100%; padding:8px; margin-top:6px;" readonly />
+              <small style="color:#666;">(Amount is read-only and will be used in the USSD.)</small>
+            </div>
+
+            <div style="margin:14px 0; background:#f8fafc; padding:10px; border-radius:8px;">
+              <div style="display:flex; gap:8px; align-items:center; justify-content:space-between;">
+                <div style="flex:1; min-width:0;">
+                  <div style="font-size:13px; color:#333;">USSD Code (restaurant number is fixed)</div>
+                  <div id="ussdCode" style="word-break:break-all; font-weight:700; margin-top:6px;">...</div>
+                  <div style="font-size:13px; color:#666;">Tap Dial to open your phone dialer with the code (mobile only).</div>
+                </div>
+                <div style="display:flex; flex-direction:column; gap:8px; margin-left:8px;">
+                  <button id="copyUssdBtn" class="btn-smalll">Copy</button>
+                  <a id="dialUssdBtn" class="btn-smalll" style="text-decoration:none; display:inline-block;">Dial</a>
+                </div>
+              </div>
+            </div>
+
+            <div style="text-align:center; margin-top:10px; display:flex; gap:8px; justify-content:center; flex-wrap:wrap;">
+              <button id="paidNotifyBtn" class="btn-primary">I've Paid — Notify</button>
+              <button id="codBtn" class="btn-small">I'll pay on delivery</button>
+              <button id="closePaymentBtn" class="btn-small">Done</button>
+            </div>
+          </div>
+        </div>
+      `;
+      document.body.appendChild(payModal);
+
+      // close handlers
+      document.getElementById('closePaymentModal').addEventListener('click', () => payModal.style.display = 'none');
+      document.getElementById('closePaymentBtn').addEventListener('click', () => payModal.style.display = 'none');
+
+      // Rebuild USSD string (IMPORTANT: uses the fixed restaurant number from generateUSSD)
+      function refreshUSSD() {
+        const op = document.getElementById('payOperator').value;
+        // take exact displayed value (string) and if empty use total with two decimals
+        const rawAmt = (document.getElementById('payAmount').value || '').trim();
+        const amt = rawAmt.length > 0 ? rawAmt : total.toFixed(2);
+        const ussd = generateUSSD(op, amt);
+        document.getElementById('ussdCode').textContent = ussd;
+        const encoded = encodeURIComponent(ussd);
+        const telHref = `tel:${encoded}`;
+        const dialBtn = document.getElementById('dialUssdBtn');
+        dialBtn.setAttribute('href', telHref);
+        dialBtn.setAttribute('onclick', `window.location.href='${telHref}'; return false;`);
+      }
+
+      // Attach events: operator change or amount (amount is read-only but we still rebuild if anything changes)
+      document.getElementById('payOperator').addEventListener('change', refreshUSSD);
+      // keep recipient input editable for user's convenience but DO NOT use it to build the USSD
+      document.getElementById('payRecipient').addEventListener('input', function(){ /* no-op for USSD generation */ });
+
+      // copy USSD
+      document.getElementById('copyUssdBtn').addEventListener('click', async function(){
+        const txt = document.getElementById('ussdCode').textContent;
+        try {
+          await navigator.clipboard.writeText(txt);
+          showToast('USSD code copied to clipboard');
+        } catch (err) {
+          const ta = document.createElement('textarea');
+          ta.value = txt;
+          document.body.appendChild(ta);
+          ta.select();
+          try { document.execCommand('copy'); showToast('USSD copied'); } catch(e){ alert('Copy failed, please copy manually: ' + txt); }
+          ta.remove();
+        }
+      });
+
+      document.getElementById('paidNotifyBtn').addEventListener('click', async function() {
+        try {
+          const orders = JSON.parse(localStorage.getItem('orders') || '[]');
+          const idx = orders.findIndex(o => (order.localId && o.localId === order.localId) || (order.remoteId && o.remoteId === order.remoteId));
+          if (idx !== -1) {
+            orders[idx].paymentStatus = 'paid';
+            orders[idx].status = 'pending'; // keep pending until admin confirms
+            orders[idx].visitorName = orders[idx].visitorName || (localStorage.getItem('visitorName') || order.visitorName || '');
+            orders[idx].phone = orders[idx].phone || (localStorage.getItem('visitorPhone') || order.phone || '');
+            // store client location timestamp if available
+            orders[idx].clientLocation = orders[idx].clientLocation || null;
+            localStorage.setItem('orders', JSON.stringify(orders));
+          }
+        } catch (err) { console.warn('update local order paid failed', err); }
+
+        // Try server updates (non-blocking)
+        try {
+          if (window.FirebaseDB && typeof window.FirebaseDB.updateOrderPaymentStatus === 'function') {
+            await window.FirebaseDB.updateOrderPaymentStatus(order.remoteId || order.localId || order.localId, 'paid');
+          }
+          if (window.FirebaseDB && typeof window.FirebaseDB.notifyPayment === 'function') {
+            await window.FirebaseDB.notifyPayment(order.remoteId || order.localId || order.localId, { paid: true });
+          }
+        } catch (e) { console.warn('server payment notify failed', e); }
+
+        const name = (order && (order.visitorName || localStorage.getItem('visitorName'))) || 'Customer';
+        showToast(`Thanks, ${name}! We marked your payment as PAID. Admin will confirm.`, 2200, 'confirmed');
+
+        payModal.style.display = 'none';
+        refreshOrderBell();
+        refreshVisitorOrderHistoryUI();
+      });
+
+      document.getElementById('codBtn').addEventListener('click', async function() {
+        try {
+          const orders = JSON.parse(localStorage.getItem('orders') || '[]');
+          const idx = orders.findIndex(o => (order.localId && o.localId === order.localId) || (order.remoteId && o.remoteId === order.remoteId));
+          if (idx !== -1) {
+            orders[idx].paymentStatus = 'cod';
+            orders[idx].status = 'pending';
+            orders[idx].visitorName = orders[idx].visitorName || (localStorage.getItem('visitorName') || order.visitorName || '');
+            orders[idx].phone = orders[idx].phone || (localStorage.getItem('visitorPhone') || order.phone || '');
+            localStorage.setItem('orders', JSON.stringify(orders));
+          }
+        } catch (err) { console.warn('mark COD failed', err); }
+
+        try {
+          if (window.FirebaseDB && typeof window.FirebaseDB.updateOrderPaymentStatus === 'function') {
+            await window.FirebaseDB.updateOrderPaymentStatus(order.remoteId || order.localId || order.localId, 'cod');
+          }
+          if (window.FirebaseDB && typeof window.FirebaseDB.notifyPayment === 'function') {
+            await window.FirebaseDB.notifyPayment(order.remoteId || order.localId || order.localId, { paid: false, method: 'cod' });
+          }
+        } catch (e) { console.warn('server COD notify failed', e); }
+
+        const name = (order && (order.visitorName || localStorage.getItem('visitorName'))) || 'Customer';
+        showToast(`Thanks, ${name}! We'll collect payment on delivery.`, 2000, 'info');
+
+        payModal.style.display = 'none';
+        refreshOrderBell();
+        refreshVisitorOrderHistoryUI();
+      });
+
+    } // end if !payModal
+
+    // Ensure fields reflect current order each time modal opens
+    const payAmountEl = document.getElementById('payAmount');
+    const payRecipientEl = document.getElementById('payRecipient');
+    const payOperatorEl = document.getElementById('payOperator');
+
+    if (payAmountEl) {
+      payAmountEl.value = displayTotal;
+      payAmountEl.setAttribute('readonly','');
+    }
+    if (payRecipientEl) payRecipientEl.value = order && order.phone ? order.phone : (localStorage.getItem('visitorPhone') || defaultRecipient);
+    if (payOperatorEl) payOperatorEl.value = 'Hormuud';
+
+    // initial USSD build and show modal
+    const opEl = document.getElementById('payOperator');
+    if (opEl) opEl.dispatchEvent(new Event('change'));
+    const pm = document.getElementById('paymentModal');
+    if (pm) pm.style.display = 'flex';
+  }
+
+  // call immediately to populate preview when checkout opens
+  buildBillPreviewHtml();
+
+  // also re-populate preview after any cart changes (so it's up-to-date)
+  const _origUpdateCartUI = updateCartUI;
+  updateCartUI = function() { _origUpdateCartUI(); buildBillPreviewHtml(); };
 }
 
-
-
-// call immediately to populate preview when checkout opens
-buildBillPreviewHtml();
-
-// also re-populate preview after any cart changes (so it's up-to-date)
-const _origUpdateCartUI = updateCartUI;
-updateCartUI = function() { _origUpdateCartUI(); buildBillPreviewHtml(); };
-
-  }
   
   // Order History code (same behaviour)
   async function openOrderHistory() {
@@ -1517,9 +2025,8 @@ updateCartUI = function() { _origUpdateCartUI(); buildBillPreviewHtml(); };
 <span style="display:block; text-align:right;">Status: <strong>${status}</strong></span>
 <span style="display:block; text-align:right;">Payment: <strong>${(o.paymentStatus||'pending').toUpperCase()}</strong></span>
 <div style="text-align:right; margin-top:6px;">
-// inside renderOrderCard, replace the action buttons area with:
 <div style="text-align:right; margin-top:6px;">
-  <button class="btn-small" onclick="window.open('order-track.html?id=${o.localId || o.remoteId || o.id}', '_blank')">Open tracking / Share location</button>
+  <button class="btn-small " onclick="window.open('order-track.html?id=${o.localId || o.remoteId || o.id}', '_blank')">Open tracking</button>
 </div>
 </div>
           </div>
@@ -1568,60 +2075,423 @@ updateCartUI = function() { _origUpdateCartUI(); buildBillPreviewHtml(); };
   }
   
   // Login Modal (visitor)
-  function openLoginModal() {
-    let loginModal = document.getElementById('loginModal');
-    if (!loginModal) {
-      loginModal = document.createElement('div');
-      loginModal.id = 'loginModal';
-      loginModal.className = 'cart-modal';
-      loginModal.innerHTML = `
-        <div class="cart-content" style="width:90%; max-width:400px;">
-          <div class="cart-header"><h2>Set Your Name (optional)</h2><span class="close-btn" id="closeLogin">&times;</span></div>
-          <div class="cart-body" style="padding:20px;">
-            <form id="loginForm">
-              <div style="margin-bottom:10px;">
-                <label for="visitorNameInput">Your name</label><br>
-                <input id="visitorNameInput" type="text" value="${visitorName || ''}" placeholder="Name to show on orders (optional)" />
-              </div>
-              <div style="text-align:center;">
-                <button class="btn-primary" type="submit">Save</button>
-              </div>
-            </form>
-          </div>
+// Replace existing openLoginModal with this complete function
+function openLoginModal() {
+  let loginModal = document.getElementById('loginModal');
+
+  // create modal markup + wiring if not present
+  if (!loginModal) {
+    loginModal = document.createElement('div');
+    loginModal.id = 'loginModal';
+    loginModal.className = 'cart-modal';
+    loginModal.innerHTML = `
+      <div class="cart-content" style="width:90%; max-width:480px;">
+        <div class="cart-header">
+          <h2>Your details (saved on this device)</h2>
+          <span class="close-btn" id="closeLogin">&times;</span>
         </div>
-      `;
-      document.body.appendChild(loginModal);
-      document.getElementById('closeLogin').addEventListener('click', ()=> loginModal.style.display='none');
-      loginModal.addEventListener('click', (e)=> { if (e.target === loginModal) loginModal.style.display='none'; });
-  
-      document.getElementById('loginForm').addEventListener('submit', function(e){
-        e.preventDefault();
-        const name = document.getElementById('visitorNameInput').value.trim();
-        visitorName = name;
-        localStorage.setItem('visitorName', visitorName);
-        const profileLink = document.getElementById('profileLink');
-        if (profileLink) profileLink.textContent = visitorName || 'Login';
-        loginModal.style.display = 'none';
-        alert('Name saved locally.');
-      });
+        <div class="cart-body" style="padding:20px;">
+          <form id="loginForm">
+            <div style="margin-bottom:10px;">
+              <label for="visitorNameInput">Name</label><br>
+              <input id="visitorNameInput" type="text" value="" placeholder="Name to show on orders (optional)" style="width:100%; padding:8px; margin-top:6px;" />
+            </div>
+
+            <div style="margin-bottom:10px;">
+              <label for="visitorPhoneInput">Phone</label><br>
+              <input id="visitorPhoneInput" type="text" value="" placeholder="Phone number" style="width:100%; padding:8px; margin-top:6px;" />
+            </div>
+
+            <div style="margin-bottom:10px;">
+              <label for="loginDistrictSelect">District (Banadir region)</label><br>
+              <select id="loginDistrictSelect" required style="width:100%; padding:8px; margin-top:6px;">
+                <!-- populated by JS -->
+              </select>
+            </div>
+
+            <div style="margin-bottom:10px;">
+              <label for="loginAreaSelect">Nearest place / locality</label><br>
+              <select id="loginAreaSelect" required style="width:100%; padding:8px; margin-top:6px;">
+                <option value="">Select area</option>
+              </select>
+            </div>
+
+            <div id="loginOtherDistrictContainer" style="display:none; margin-bottom:10px;">
+              <label>Add other district</label><br>
+              <input id="loginOtherDistrictInput" placeholder="New district name" style="width:70%; padding:8px; margin-top:6px;" />
+              <button id="loginSaveOtherDistrict" type="button" class="btn-small" style="margin-left:8px;">Add district</button>
+            </div>
+
+            <div id="loginOtherPlaceContainer" style="display:none; margin-bottom:10px;">
+              <label>Add other nearest place (saved to your device)</label><br>
+              <input id="loginOtherPlaceInput" placeholder="New nearest place / locality" style="width:70%; padding:8px; margin-top:6px;" />
+              <button id="loginSaveOtherPlace" type="button" class="btn-small" style="margin-left:8px;">Save place</button>
+            </div>
+
+            <div style="text-align:center; margin-top:12px;">
+              <button class="btn-primary" type="submit">Save</button>
+            </div>
+          </form>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(loginModal);
+
+    // close
+    document.getElementById('closeLogin').addEventListener('click', () => loginModal.style.display = 'none');
+    loginModal.addEventListener('click', (e) => { if (e.target === loginModal) loginModal.style.display = 'none'; });
+
+    // ----- District/area data and helpers -----
+    const defaultDistrictAreas = {
+      "Hamarweyne": ["Bakara Market", "Shingani area", "Old Port"],
+      "Shangani": ["Shangani Market", "Coast Road"],
+      "Bondhere": ["Bondhere Market", "Afrika Hotel area"],
+      "Hodan": ["Taleex","Albarako","Tarabuun","Digfeer","Warshada Caanaha","Soonakey","Banaadir"],
+      "Wadajir": ["Madina","Bakaara outskirts"],
+      "Daynile": ["Daynile main","Airport road"],
+      "Dharkenley": ["Sodonka","KM4 area"],
+      "Kaxda": ["Kaxda Market","New residential"],
+      "Yaaqshiid": ["Intelligence quarter","Stadium area"],
+      "Heliwa": ["Heliwa Market","Surroundings"],
+      "Shibis": ["Shibis Market","Upcountry road"]
+    };
+
+    // keys used for storing custom districts/areas
+    const CUSTOM_DISTRICTS_KEY = 'customDistricts_v1';
+    const CUSTOM_AREAS_KEY = 'customAreas_v1';
+
+    // define global helpers only if not already present (keeps compatibility)
+    if (typeof window.getCustomDistricts !== 'function') {
+      window.getCustomDistricts = function() { try { return JSON.parse(localStorage.getItem(CUSTOM_DISTRICTS_KEY) || '[]'); } catch(e){ return []; } };
+      window.saveCustomDistricts = function(arr) { try { localStorage.setItem(CUSTOM_DISTRICTS_KEY, JSON.stringify(arr || [])); } catch(e){ console.warn(e); } };
+      window.getCustomAreas = function() { try { return JSON.parse(localStorage.getItem(CUSTOM_AREAS_KEY) || '{}'); } catch(e){ return {}; } };
+      window.saveCustomAreas = function(obj) { try { localStorage.setItem(CUSTOM_AREAS_KEY, JSON.stringify(obj || {})); } catch(e){ console.warn(e); } };
     }
-    loginModal.style.display = 'flex';
-  }
-  
-  // Menu helpers (same)
-  function setupFilterButtonsIfNeeded() {
-    const filterButtons = document.querySelectorAll('.filter-btn');
-    if (!filterButtons || filterButtons.length === 0) return;
-    filterButtons.forEach(button => {
-      button.addEventListener('click', function() {
-        filterButtons.forEach(btn => btn.classList.remove('active'));
-        this.classList.add('active');
-        const cat = this.getAttribute('data-category');
-        displayMenuFoods(cat);
+
+    // DOM refs inside modal
+    const dSelect = document.getElementById('loginDistrictSelect');
+    const aSelect = document.getElementById('loginAreaSelect');
+    const otherDistrictContainer = document.getElementById('loginOtherDistrictContainer');
+    const otherDistrictInput = document.getElementById('loginOtherDistrictInput');
+    const saveOtherDistrictBtn = document.getElementById('loginSaveOtherDistrict');
+    const otherPlaceContainer = document.getElementById('loginOtherPlaceContainer');
+    const otherPlaceInput = document.getElementById('loginOtherPlaceInput');
+    const saveOtherPlaceBtn = document.getElementById('loginSaveOtherPlace');
+
+    // Build district options (default + custom)
+    function buildDistrictOptions() {
+      const custom = window.getCustomDistricts();
+      const districts = Object.keys(defaultDistrictAreas).slice();
+      custom.forEach(cd => { if (!districts.includes(cd)) districts.push(cd); });
+      districts.sort();
+      dSelect.innerHTML = '<option value="">Select district</option>';
+      districts.forEach(d => {
+        const opt = document.createElement('option'); opt.value = d; opt.textContent = d;
+        dSelect.appendChild(opt);
       });
+      const otherOpt = document.createElement('option'); otherOpt.value = 'Other'; otherOpt.textContent = 'Other (add new district)';
+      dSelect.appendChild(otherOpt);
+    }
+
+    // Populate areas for chosen district, including saved custom areas
+    function populateAreasForDistrict(district) {
+      aSelect.innerHTML = '<option value="">Select area</option>';
+      if (!district || district === 'Other') return;
+      const defaultList = defaultDistrictAreas[district] || [];
+      const customAreasObj = window.getCustomAreas();
+      const savedForDistrict = Array.isArray(customAreasObj[district]) ? customAreasObj[district] : [];
+      const merged = defaultList.slice();
+      savedForDistrict.forEach(x => { if (!merged.includes(x)) merged.push(x); });
+      merged.forEach(a => {
+        const opt = document.createElement('option'); opt.value = a; opt.textContent = a;
+        aSelect.appendChild(opt);
+      });
+      const otherOpt = document.createElement('option'); otherOpt.value = 'Other'; otherOpt.textContent = 'Other (add new nearest place)';
+      aSelect.appendChild(otherOpt);
+    }
+
+    // wiring
+    dSelect.addEventListener('change', function() {
+      const v = this.value;
+      otherDistrictContainer.style.display = (v === 'Other') ? 'block' : 'none';
+      otherPlaceContainer.style.display = 'none';
+      if (v && v !== 'Other') populateAreasForDistrict(v);
+      else aSelect.innerHTML = '<option value="">Select area</option>';
     });
+
+    aSelect.addEventListener('change', function() {
+      const v = this.value;
+      otherPlaceContainer.style.display = (v === 'Other') ? 'block' : 'none';
+    });
+
+    // add new district (persist globally)
+    saveOtherDistrictBtn.addEventListener('click', function() {
+      const val = (otherDistrictInput.value || '').trim();
+      if (!val) { alert('Enter the district name'); return; }
+      const custom = window.getCustomDistricts();
+      if (!custom.includes(val)) {
+        custom.push(val);
+        window.saveCustomDistricts(custom);
+      }
+      buildDistrictOptions();
+      dSelect.value = val;
+      otherDistrictInput.value = '';
+      otherDistrictContainer.style.display = 'none';
+      populateAreasForDistrict(val);
+      try { showToast && showToast(`Added district "${val}"`); } catch(e){}
+    });
+
+    // add new area (persist to customAreas for that district)
+    saveOtherPlaceBtn.addEventListener('click', function() {
+      const district = dSelect.value;
+      if (!district || district === 'Other') { alert('Select a district first'); return; }
+      const val = (otherPlaceInput.value || '').trim();
+      if (!val) { alert('Enter the nearest place name'); return; }
+      const customAreas = window.getCustomAreas();
+      customAreas[district] = customAreas[district] || [];
+      if (!customAreas[district].includes(val)) customAreas[district].push(val);
+      window.saveCustomAreas(customAreas);
+      // rebuild area dropdown and select new place
+      populateAreasForDistrict(district);
+      aSelect.value = val;
+      otherPlaceInput.value = '';
+      otherPlaceContainer.style.display = 'none';
+      try { showToast && showToast(`Saved place "${val}" for ${district}`); } catch(e){}
+    });
+
+    // initial build
+    buildDistrictOptions();
+  } // end modal creation
+
+  // Show modal
+  loginModal.style.display = 'flex';
+
+  // Populate fields from localStorage (every time the modal opens)
+  try {
+    const name = localStorage.getItem('visitorName') || '';
+    const phone = localStorage.getItem('visitorPhone') || '';
+    const savedDistrict = localStorage.getItem('visitorDistrict') || '';
+    const savedArea = localStorage.getItem('visitorArea') || '';
+
+    const nameEl = document.getElementById('visitorNameInput');
+    const phoneEl = document.getElementById('visitorPhoneInput');
+    const dSelectNow = document.getElementById('loginDistrictSelect');
+    const aSelectNow = document.getElementById('loginAreaSelect');
+
+    if (nameEl) nameEl.value = name;
+    if (phoneEl) phoneEl.value = phone;
+
+    // Set district & area after a short microtask so options exist
+    setTimeout(() => {
+      try {
+        if (dSelectNow && savedDistrict) {
+          // ensure savedDistrict option exists; if not, add to custom and rebuild
+          const hasOption = Array.from(dSelectNow.options).some(o => o.value === savedDistrict);
+          if (!hasOption) {
+            const custom = window.getCustomDistricts();
+            if (!custom.includes(savedDistrict)) { custom.push(savedDistrict); window.saveCustomDistricts(custom); }
+            buildDistrictOptions();
+          }
+          dSelectNow.value = savedDistrict;
+
+          // populate areas (will include customAreas if any)
+          populateAreasForDistrict(savedDistrict);
+
+          if (aSelectNow && savedArea) {
+            const exists = Array.from(aSelectNow.options).some(o => o.value === savedArea);
+            if (!exists) {
+              // persist savedArea into customAreas and repopulate
+              try {
+                const obj = window.getCustomAreas();
+                obj[savedDistrict] = obj[savedDistrict] || [];
+                if (!obj[savedDistrict].includes(savedArea)) obj[savedDistrict].push(savedArea);
+                window.saveCustomAreas(obj);
+                populateAreasForDistrict(savedDistrict);
+              } catch(err){}
+            }
+            aSelectNow.value = savedArea;
+          }
+        }
+      } catch (err) { console.warn('prefill district/area failed', err); }
+    }, 10);
+  } catch (err) { console.warn('prefill login modal failed', err); }
+
+  // form submit handler: save name, phone, district, area to localStorage
+  const loginForm = document.getElementById('loginForm');
+  // remove previous listener (defensive) then attach
+  try { loginForm.removeEventListener && loginForm.removeEventListener('submit', window.__loginFormHandler); } catch(e){}
+  window.__loginFormHandler = function(e) {
+    e.preventDefault();
+    try {
+      const name = (document.getElementById('visitorNameInput').value || '').trim();
+      const phone = (document.getElementById('visitorPhoneInput').value || '').trim();
+      const district = (document.getElementById('loginDistrictSelect').value || '').trim();
+      const area = (document.getElementById('loginAreaSelect').value || '').trim();
+
+      if (phone && phone.length < 6) {
+        if (!confirm('Phone looks short — save anyway?')) return;
+      }
+
+      // persist
+      try {
+        localStorage.setItem('visitorName', name);
+        localStorage.setItem('visitorPhone', phone);
+        localStorage.setItem('visitorDistrict', district);
+        localStorage.setItem('visitorArea', area);
+      } catch(err) { console.warn('persist visitor data failed', err); }
+
+      // update runtime & UI
+      visitorName = name;
+      const profileLink = document.getElementById('profileLink');
+      if (profileLink) profileLink.textContent = visitorName || (localStorage.getItem('visitorName') || 'Login');
+
+      loginModal.style.display = 'none';
+      try { showToast && showToast('Saved: name, phone and location'); } catch(e){}
+    } catch (err) {
+      console.warn('login save failed', err);
+      alert('Save failed — check console for details.');
+    }
+  };
+  loginForm.addEventListener('submit', window.__loginFormHandler);
+}
+
+
+  // Menu helpers (same)
+// keep this global to remember current category between actions
+window.currentMenuCategory = 'all';
+
+// ---------- replace old setupFilterButtonsIfNeeded() with this ----------
+function setupFilterDropdown() {
+  const filterBtn = document.getElementById('filterBtn');
+  const filterList = document.getElementById('filterList');
+  const options = Array.from(document.querySelectorAll('.filter-option'));
+  const filterLabel = document.getElementById('filterLabel');
+
+  if (!filterBtn || !filterList || !options.length) return;
+
+  // toggle dropdown
+  filterBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const show = !filterList.classList.contains('show');
+    filterList.classList.toggle('show', show);
+    filterBtn.setAttribute('aria-expanded', String(show));
+  });
+
+  // option click
+  options.forEach(opt => {
+    opt.addEventListener('click', () => {
+      options.forEach(o => { o.classList.remove('selected'); o.setAttribute('aria-selected','false'); });
+      opt.classList.add('selected');
+      opt.setAttribute('aria-selected','true');
+
+      const category = opt.dataset.category || 'all';
+      filterLabel.textContent = opt.textContent.trim();
+      filterList.classList.remove('show');
+      filterBtn.setAttribute('aria-expanded','false');
+
+      // remember selection and render
+      window.currentMenuCategory = category;
+      displayMenuFoods(category);
+    });
+
+    // keyboard support
+    opt.setAttribute('tabindex','0');
+    opt.addEventListener('keydown', (e) => {
+      const idx = options.indexOf(opt);
+      if (e.key === 'ArrowDown') { e.preventDefault(); options[(idx + 1) % options.length].focus(); }
+      if (e.key === 'ArrowUp') { e.preventDefault(); options[(idx - 1 + options.length) % options.length].focus(); }
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); opt.click(); }
+      if (e.key === 'Escape') { filterList.classList.remove('show'); filterBtn.setAttribute('aria-expanded','false'); filterBtn.focus(); }
+    });
+  });
+
+  // close on outside click
+  document.addEventListener('click', (e) => {
+    if (!filterBtn.contains(e.target) && !filterList.contains(e.target)) {
+      filterList.classList.remove('show');
+      filterBtn.setAttribute('aria-expanded','false');
+    }
+  });
+
+  // initial selection already in markup (All)
+  const selected = options.find(o => o.classList.contains('selected')) || options[0];
+  if (selected) {
+    window.currentMenuCategory = selected.dataset.category || 'all';
+    filterLabel.textContent = selected.textContent.trim();
   }
-  /* ---------- render helper (used by displayMenuFoods & search) ---------- */
+}
+
+// ---------- helper: update visible count badge ----------
+function updateVisibleCount(count) {
+  const el = document.getElementById('visibleCount');
+  if (!el) return;
+  el.textContent = String(count);
+}
+
+// ---------- updated displayMenuFoods (replace your existing version) ----------
+function displayMenuFoods(category = 'all') {
+  const menuFoods = document.getElementById('menuFoods');
+  if (!menuFoods) return;
+  menuFoods.innerHTML = '';
+
+  const cat = (category || 'all').toString().toLowerCase();
+
+  function matchesCategory(food, c) {
+    if (!c || c === 'all') return true;
+    const fc = food.category;
+    if (!fc) return false;
+    if (Array.isArray(fc)) return fc.map(x => x.toString().toLowerCase()).includes(c);
+    return String(fc).toLowerCase() === c;
+  }
+
+  const filtered = cat === 'all' ? foodData : foodData.filter(f => matchesCategory(f, cat));
+
+  if (filtered.length === 0) {
+    menuFoods.innerHTML = '<p style="padding:12px;">No items found for this category.</p>';
+    updateVisibleCount(0);
+    return;
+  }
+
+  filtered.forEach(food => {
+    const card = document.createElement('div');
+    card.className = 'food-card';
+
+    // ensure card has a data-category attribute (space-separated)
+    let catAttr = '';
+    if (Array.isArray(food.category)) {
+      catAttr = food.category.join(' ');
+    } else if (food.category) {
+      catAttr = String(food.category);
+    }
+    card.setAttribute('data-category', catAttr);
+
+    // price text
+    let priceText = '';
+    if (food.sizes && food.sizes.length > 0) {
+      const minPrice = Math.min(...food.sizes.map(s => s.price));
+      priceText = `From $${minPrice.toFixed(2)}`;
+    } else {
+      priceText = `$${(food.price || 0).toFixed(2)}`;
+    }
+
+    card.innerHTML = `
+      <img src="${food.image}" alt="${food.name}">
+      <div class="food-info">
+        <h3>${food.name}</h3>
+        <p>${food.description || ''}</p>
+        <span class="price">${priceText}</span>
+        <button class="add-to-cart" data-id="${food.id}">Add to Cart</button>
+      </div>
+    `;
+    menuFoods.appendChild(card);
+  });
+
+  // attach buttons & update visible count
+  attachAddToCartButtons();
+  updateVisibleCount(filtered.length);
+}
+
+/* ---------- render helper (used by displayMenuFoods & search) ---------- */
 function renderFoodList(list) {
   const menuFoods = document.getElementById('menuFoods');
   if (!menuFoods) return;
@@ -1629,6 +2499,7 @@ function renderFoodList(list) {
 
   if (!list || list.length === 0) {
     menuFoods.innerHTML = '<p style="padding:12px;">No items found.</p>';
+    updateVisibleCount(0);
     return;
   }
 
@@ -1653,13 +2524,21 @@ function renderFoodList(list) {
         <button class="add-to-cart" data-id="${food.id}">Add to Cart</button>
       </div>
     `;
+    // ensure card has data-category for potential future filtering via DOM
+    let catAttr = '';
+    if (Array.isArray(food.category)) catAttr = food.category.join(' ');
+    else if (food.category) catAttr = String(food.category);
+    if (catAttr) card.setAttribute('data-category', catAttr);
+
     menuFoods.appendChild(card);
   });
 
   attachAddToCartButtons();
+  updateVisibleCount(list.length);
 }
 
 /* ---------- Search bar setup (in menu header) ---------- */
+
 function setupMenuSearch() {
   const menuHeader = document.querySelector('.menu-header');
   if (!menuHeader) return;
@@ -1669,29 +2548,34 @@ function setupMenuSearch() {
     const searchWrap = document.createElement('div');
     searchWrap.id = 'menuSearchContainer';
     searchWrap.style.margin = '18px 0';
+    searchWrap.style.display = 'flex';
+    searchWrap.style.gap = '8px';
+    searchWrap.style.alignItems = 'center';
+    searchWrap.style.flexWrap = 'wrap';
+
+    // NOTE: Clear button removed here
     searchWrap.innerHTML = `
-      <div class="menu-search" style="display:flex; gap:8px; justify-content:center; align-items:center;">
-        <input id="menuSearchInput" type="search" placeholder="Search menu (e.g. pizza, bariis, canjeero)" style="width:60%; padding:10px; border-radius:8px; border:1px solid #ddd;" />
+      <div class="menu-search" style="display:flex; gap:8px; align-items:center; flex:1;">
+        <input id="menuSearchInput" type="search" placeholder="Search menu (e.g. pizza, bariis, canjeero)" style="flex:1; min-width:180px; padding:10px; border-radius:8px; border:1px solid #ddd;" />
         <button id="menuSearchBtn" class="btn-primary" style="padding:10px 14px; border-radius:8px; font-size:14px;">Search</button>
-        <button id="menuSearchClear" style="padding:10px 12px; border-radius:8px; border:1px solid #ccc; background:white; cursor:pointer;">Clear</button>
       </div>
     `;
     menuHeader.appendChild(searchWrap);
 
+    // If filter-dropdown exists in DOM, move it into searchWrap so it sits next to the search button
+    const filterDropdown = document.querySelector('.filter-dropdown');
+    if (filterDropdown) {
+      searchWrap.appendChild(filterDropdown);
+      filterDropdown.style.margin = '0';
+    }
+
     const input = document.getElementById('menuSearchInput');
     const btn = document.getElementById('menuSearchBtn');
-    const clearBtn = document.getElementById('menuSearchClear');
 
+    // Search by clicking button
     btn.addEventListener('click', () => {
       const q = (input.value || '').trim();
       performMenuSearch(q);
-    });
-
-    clearBtn.addEventListener('click', () => {
-      input.value = '';
-      // restore current active filter
-      const active = document.querySelector('.filter-btn.active');
-      displayMenuFoods(active ? active.getAttribute('data-category') : 'all');
     });
 
     // Enter key triggers search
@@ -1702,8 +2586,30 @@ function setupMenuSearch() {
         performMenuSearch(q);
       }
     });
+
+    // When the input changes and becomes empty (user cleared using native X or backspaced),
+    // restore the current dropdown category automatically.
+    input.addEventListener('input', () => {
+      const q = (input.value || '').trim();
+      if (!q) {
+        // restore display using current dropdown selection
+        displayMenuFoods(window.currentMenuCategory || 'all');
+
+        // restore dropdown visual selection (if any)
+        const selected = document.querySelector('.filter-option.selected');
+        if (selected) {
+          const lbl = document.getElementById('filterLabel');
+          if (lbl) lbl.textContent = selected.textContent.trim();
+        } else {
+          const lbl = document.getElementById('filterLabel');
+          if (lbl) lbl.textContent = 'All Items';
+        }
+      }
+    });
   }
 }
+
+
 
 /* ---------- perform search (case-insensitive name search) ---------- */
 function performMenuSearch(query) {
@@ -1854,55 +2760,6 @@ function updateMobileAdminVisibility() {
 
 
 
-  function displayMenuFoods(category = 'all') {
-    const menuFoods = document.getElementById('menuFoods');
-    if (!menuFoods) return;
-    menuFoods.innerHTML = '';
-  
-    const cat = (category || 'all').toString().toLowerCase();
-  
-    function matchesCategory(food, c) {
-      if (!c || c === 'all') return true;
-      const fc = food.category;
-      if (!fc) return false;
-      if (Array.isArray(fc)) return fc.map(x => x.toString().toLowerCase()).includes(c);
-      return String(fc).toLowerCase() === c;
-    }
-  
-    const filtered = cat === 'all' ? foodData : foodData.filter(f => matchesCategory(f, cat));
-  
-    if (filtered.length === 0) {
-      menuFoods.innerHTML = '<p style="padding:12px;">No items found for this category.</p>';
-      return;
-    }
-  
-    filtered.forEach(food => {
-      const card = document.createElement('div');
-      card.className = 'food-card';
-  
-      // price: if item has sizes show "From $" else show price
-      let priceText = '';
-      if (food.sizes && food.sizes.length > 0) {
-        const minPrice = Math.min(...food.sizes.map(s => s.price));
-        priceText = `From $${minPrice.toFixed(2)}`;
-      } else {
-        priceText = `$${(food.price || 0).toFixed(2)}`;
-      }
-  
-      card.innerHTML = `
-        <img src="${food.image}" alt="${food.name}">
-        <div class="food-info">
-          <h3>${food.name}</h3>
-          <p>${food.description || ''}</p>
-          <span class="price">${priceText}</span>
-          <button class="add-to-cart" data-id="${food.id}">Add to Cart</button>
-        </div>
-      `;
-      menuFoods.appendChild(card);
-    });
-  
-    attachAddToCartButtons();
-  }
   
   
   // display featured foods
@@ -1941,7 +2798,17 @@ function displayFeaturedFoods() {
   });
   attachAddToCartButtons();
 }
+/* ===== HEADER + MOBILE ICONS BOOTSTRAP (paste at end of script.js) ===== */
 
+
+/* ---------------------------- */
+/* ADMIN UI OVERRIDES (paste at end of script.js) */
+/* ---------------------------- */
+
+
+
+
+  
   
   document.addEventListener('DOMContentLoaded', function() {
     loadCartFromLocalStorage();
@@ -1960,8 +2827,22 @@ function displayFeaturedFoods() {
     // setup header UI
     setupHeaderUI();
   
+    // restore admin session on refresh
+try {
+  if (localStorage.getItem('adminSigned') === '1') {
+    const savedAdmin = JSON.parse(localStorage.getItem('adminDoc') || '{}');
+    if (savedAdmin && Object.keys(savedAdmin).length) {
+      setAdminSignedIn(savedAdmin);
+    }
+  }
+} catch (e) {
+  console.warn('Failed to restore admin session', e);
+}
+
+
     // setup menu filters if any
-    setupFilterButtonsIfNeeded();
+// setup menu filters (dropdown)
+setupFilterDropdown();
   
     // setup search bar in the menu header
     setupMenuSearch();
@@ -1970,9 +2851,11 @@ function displayFeaturedFoods() {
     ensureMobileMenu();
   
     // Render initial menu using the active filter if present (fixes "All" not rendering first time)
-    const initialActive = document.querySelector('.filter-btn.active');
-    const initialCategory = initialActive ? initialActive.getAttribute('data-category') : 'all';
-    displayMenuFoods(initialCategory);
+// render initial menu using dropdown selection (or default 'all')
+displayMenuFoods(window.currentMenuCategory || 'all');
+
+    
   });
   
   
+
