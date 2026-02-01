@@ -70,36 +70,47 @@ nav .nav-links.nav-open {
   </style>
 </head>
 <body>
-<!-- header (unchanged) -->
-<header>
-    <div class="container">
-      <div class="logo">
-        <img src="img/logo.png" alt="Foodie Delight Logo" />
-        <h1>Foodie Delight</h1>
+    <!-- Header Section -->
+    <header>
+      <div class="container header-row">
+        <div class="logo">
+          <img src="img/logo.png" alt="Foodie Delight Logo" />
+          <h1>Foodie Delight</h1>
+        </div>
+    
+        <!-- Mobile icons (order, shop) — inserted BEFORE nav to show on mobile left -->
+        <div id="mobileIcons" class="mobile-icons" aria-hidden="false"></div>
+    
+        <nav role="navigation" aria-label="Primary">
+          <ul class="nav-links">
+            <li><a href="index.html">Home</a></li>
+            <li><a href="menu.html" class="active">Menu</a></li>
+            <li><a href="about.html">About</a></li>
+            <li><a href="contact.html">Contact</a></li>
+            <li><a href="order-track.html">Tracking</a></li>
+    
+            <!-- Desktop-visible Cart & Orders (we will hide on mobile via CSS/class) -->
+            <li><a href="#" id="cartLink">Cart <span class="cart-count">0</span></a></li>
+            <li><a href="#" id="orderHistoryLink">Orders</a></li>
+    
+            <!-- Visitor profile -->
+            <li><a href="#" id="profileLink">Login</a></li>
+    
+            <!-- Admin dashboard (single place) + admin bell (single place) -->
+            <li id="adminLi" style="display:none;"><a href="#" id="adminLink">Admin</a></li>
+            <li id="orderBellLi" style="display:none;">
+              <a href="#" id="orderBell" title="Admin orders" aria-label="Admin orders">
+                <span class="bell-icon" aria-hidden="true">🔔</span>
+                <span id="orderBellCount" class="cart-count">0</span>
+              </a>
+            </li>
+          </ul>
+        </nav>
+    
+        <!-- hamburger injected elsewhere if you already have it; this header won't interfere -->
       </div>
-      <nav>
-        <ul class="nav-links">
-          <li><a href="index.html" >Home</a></li>
-          <li><a href="menu.html" class="active">Menu</a></li>
-          <li><a href="about.html">About</a></li>
-          <li><a href="contact.html">Contact</a></li>
-          <li><a href="order-track.html">tracking</a></li>
-
-          <li><a href="#" id="cartLink">Cart <span class="cart-count">0</span></a></li>
-  
-          <!-- Visitor order history & profile (always created but content toggled by script) -->
-          <li><a href="#" id="orderHistoryLink">Orders</a></li>
-          <li><a href="#" id="profileLink">Login</a></li>
-  
-          <!-- Admin Link and Bell — inserted and hidden by JS, shown only for admin -->
-          <li><a href="#" id="adminLink" style="display:none;">Admin</a></li>
-          <li><a href="#" id="orderBell" style="display:none;"><i class="fa fa-bell"></i> <span id="orderBellCount" class="cart-count">0</span></a></li>
-        </ul>
-      </nav>
-    </div>
-  </header>
-  
-
+    </header>
+    <a href="admin.html"></a>
   <!-- Menu Section -->
   <section class="menu-page">
     <div class="container">
@@ -108,18 +119,27 @@ nav .nav-links.nav-open {
         <p>Explore our wide selection of mouth-watering dishes</p>
       </div>
 
-      <div class="filter-buttons">
-        <button class="filter-btn active" data-category="all">All Items</button>
-        <button class="filter-btn" data-category="pizza">Pizza</button>
-        <button class="filter-btn" data-category="burger">Burgers</button>
-        <button class="filter-btn" data-category="sandwich">Sandwiches</button>
-        <button class="filter-btn" data-category="somali">Cuntada Dalka</button>
-        <button class="filter-btn" data-category="rice">Bariis / Rice</button>
-        <button class="filter-btn" data-category="fruits">Fruits</button>
-        <button class="filter-btn" data-category="juice">Juice</button>
-        <button class="filter-btn" data-category="breakfast">Breakfast</button>
-        <button class="filter-btn" data-category="extras">Extras / Sides</button>
-      </div>
+<!-- Filter dropdown (replace .filter-buttons block with this) -->
+<div class="filter-dropdown" style="margin-bottom:12px;">
+  <button id="filterBtn" class="filter-btn" aria-haspopup="listbox" aria-expanded="false" type="button">
+    <span id="filterLabel">All Items</span>
+    <span id="visibleCount" class="visible-count" aria-hidden="true">0</span>
+    <i class="fa fa-chevron-down" aria-hidden="true" style="margin-left:8px;"></i>
+  </button>
+
+  <ul id="filterList" class="filter-list" role="listbox" aria-label="Filter menu">
+    <li role="option" data-category="all" class="filter-option selected" aria-selected="true">All Items</li>
+    <li role="option" data-category="pizza" class="filter-option">Pizza</li>
+    <li role="option" data-category="burger" class="filter-option">Burgers</li>
+    <li role="option" data-category="sandwich" class="filter-option">Sandwiches</li>
+    <li role="option" data-category="somali" class="filter-option">Cuntada Dalka</li>
+    <li role="option" data-category="rice" class="filter-option">Bariis / Rice</li>
+    <li role="option" data-category="fruits" class="filter-option">Fruits</li>
+    <li role="option" data-category="juice" class="filter-option">Juice</li>
+    <li role="option" data-category="breakfast" class="filter-option">Breakfast</li>
+    <li role="option" data-category="extras" class="filter-option">Extras / Sides</li>
+  </ul>
+</div>
 
       <div class="food-grid" id="menuFoods">
         <!-- Menu items will be loaded here by JavaScript -->
