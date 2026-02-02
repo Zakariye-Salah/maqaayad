@@ -1110,6 +1110,116 @@ function showToast(message, t = 2200, type = 'info') {
       }
     }
 
+    // Replace your existing shareLink branch with this function call:
+async function openShareModalForOrder(ord) {
+  // ord should be the order object (may have localId, remoteId, id)
+  const docId = ord && (ord.id || ord.remoteId) ? (ord.id || ord.remoteId) : (ord.localId || '');
+  const localId = ord && ord.localId ? ord.localId : '';
+  // build a tracking URL that includes docId (if known) and localId
+  // prefer docId in param "id" (firestore doc id) when available; fallback to localId
+  const trackBase = `${location.origin}/order-track.html`;
+  const params = new URLSearchParams();
+  if (docId) params.set('id', docId);
+  if (localId && (!docId || docId.indexOf('local_') === 0)) params.set('local', localId);
+  // Admin can choose role for the recipient (driver/customer)
+  // The modal UI below allows selecting contacts and role.
+
+  // Build modal DOM
+  let m = document.getElementById('shareOrderModal');
+  if (!m) {
+    m = document.createElement('div');
+    m.id = 'shareOrderModal';
+    m.className = 'cart-modal';
+    m.innerHTML = `
+      <div class="cart-content" style="max-width:520px;">
+        <div class="cart-header"><h3>Share tracking link</h3><span class="close-btn" id="closeShareModal">&times;</span></div>
+        <div class="cart-body" style="padding:12px;">
+          <div style="margin-bottom:8px;">
+            <label>Role for recipient</label><br/>
+            <select id="shareRole" style="width:100%; padding:8px; margin-top:6px;">
+              <option value="driver">Driver (open with driver UI)</option>
+              <option value="customer">Customer (customer UI)</option>
+            </select>
+          </div>
+
+          <div style="margin-bottom:8px;">
+            <label>Select contacts (or paste numbers, comma separated)</label>
+            <div id="shareContactsList" style="max-height:160px; overflow:auto; border:1px dashed #e6eef9; padding:8px; border-radius:6px;"></div>
+            <div style="margin-top:8px;">
+              <input id="shareManualNumbers" placeholder="e.g. 617123456, 627123456" style="width:100%; padding:8px;" />
+            </div>
+          </div>
+
+          <div style="text-align:right;">
+            <button id="sendShareBtn" class="btn-primary">Send to selected</button>
+            <button id="copyShareBtn" class="btn" style="margin-left:8px;">Copy message</button>
+          </div>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(m);
+
+    document.getElementById('closeShareModal').addEventListener('click', ()=> m.style.display='none');
+    m.addEventListener('click', (e)=> { if (e.target === m) m.style.display='none'; });
+  }
+
+  // populate contacts list from your contacts collection (if available) else allow manual entry
+  const contactsContainer = document.getElementById('shareContactsList');
+  contactsContainer.innerHTML = '<div style="color:#666">Loading contacts...</div>';
+  let contacts = [];
+  try {
+    if (window.FirebaseDB && typeof window.FirebaseDB.listContacts === 'function') {
+      const res = await window.FirebaseDB.listContacts();
+      if (res && res.success) contacts = res.contacts || [];
+    }
+  } catch(e) { console.warn('listContacts failed', e); }
+  // render simple checkboxes for numbers
+  if (contacts.length === 0) {
+    contactsContainer.innerHTML = '<div style="color:#666">No saved contacts (or failed to load). You can paste numbers below.</div>';
+  } else {
+    contactsContainer.innerHTML = contacts.map(c => {
+      const phone = (c.phone || c.number || '').replace(/\s+/g,'');
+      return `<label style="display:block; margin-bottom:6px;"><input type="checkbox" data-phone="${encodeURIComponent(phone)}"> ${c.name || phone} — ${phone}</label>`;
+    }).join('');
+  }
+
+  document.getElementById('sendShareBtn').onclick = function() {
+    const role = document.getElementById('shareRole').value || 'driver';
+    // gather selected phones
+    const checked = Array.from(contactsContainer.querySelectorAll('input[type=checkbox]:checked')).map(n => decodeURIComponent(n.dataset.phone));
+    // manual numbers
+    const manual = (document.getElementById('shareManualNumbers').value || '').split(',').map(s => s.trim()).filter(Boolean);
+    const phones = checked.concat(manual).filter(Boolean);
+
+    if (phones.length === 0) {
+      showToast && showToast('Select or paste at least one phone number');
+      return;
+    }
+
+    const trackUrl = `${trackBase}?${params.toString()}&role=${encodeURIComponent(role)}`;
+    const msg = `Delivery: Order ${ord.remoteId || ord.id || ord.localId || ''}\nCustomer: ${ord.visitorName||''} • ${ord.phone||''}\nOpen tracking: ${trackUrl}`;
+
+    // open WhatsApp composer for each selected phone (note: this will open a tab per number)
+    phones.forEach(p => {
+      const cleaned = p.replace(/[^\d]/g,''); // remove + or spaces; WhatsApp expects no plus
+      const wa = `https://wa.me/${cleaned}?text=${encodeURIComponent(msg)}`;
+      window.open(wa, '_blank');
+    });
+
+    showToast && showToast('WhatsApp composer opened for selected numbers', 1600, 'info');
+    m.style.display = 'none';
+  };
+
+  document.getElementById('copyShareBtn').onclick = function() {
+    const role = document.getElementById('shareRole').value || 'driver';
+    const trackUrl = `${trackBase}?${params.toString()}&role=${encodeURIComponent(role)}`;
+    const msg = `Delivery: Order ${ord.remoteId || ord.id || ord.localId || ''}\nCustomer: ${ord.visitorName||''} • ${ord.phone||''}\nOpen tracking: ${trackUrl}`;
+    navigator.clipboard && navigator.clipboard.writeText(msg).then(()=> showToast && showToast('Message copied') ).catch(()=> alert(msg));
+  };
+
+  m.style.display = 'flex';
+}
+
     // filters ordersCache by period/status/search and then renders + updates totals
 // Replace your existing applyFiltersAndRender with this exact function
 function applyFiltersAndRender() {
@@ -1267,16 +1377,9 @@ html += `<button class="btn-small" data-action="shareLink" data-id="${id}">Share
         await markPaymentWithConfirm(id, 'cod');
         return;
       }
-
       if (action === 'shareLink') {
-  // set delivery contact number (international format without +; change to your rider/team number)
-  const WA_NUMBER = '617125558'; // set to rider/dispatch WhatsApp number
-  const trackUrl = `${location.origin}/order-track.html?id=${encodeURIComponent(id)}`;
-  const msg = `New delivery: Order ${id}\nCustomer: ${ord ? (ord.visitorName||'') : ''} • ${ord ? (ord.phone||'') : ''}\nOpen tracking: ${trackUrl}`;
-  const waUrl = `https://wa.me/${WA_NUMBER}?text=${encodeURIComponent(msg)}`;
-  // open WhatsApp web or app: user will have to send
-  window.open(waUrl, '_blank');
-  showToast('WhatsApp composer opened (send to rider)', 1400, 'info');
+  // open the sharing modal (admin can pick contacts, role, copy message, etc.)
+  if (typeof openShareModalForOrder === 'function') openShareModalForOrder(ord || { id });
   return;
 }
 
