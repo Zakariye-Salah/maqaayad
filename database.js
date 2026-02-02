@@ -625,4 +625,94 @@ window.FirebaseDB.notifyPayment = async function(orderId, payload = {}) {
   }
 };
 
+// Helper: resolve an order identifier to the Firestore document id.
+// Accepts either a Firestore doc id OR a localId (starting with "local_" or any other local id).
+// Returns { success: true, docId, order } or { success:false, error: ... }
+window.FirebaseDB.findOrderByAnyId = async function(anyId) {
+  try {
+    if (!anyId) return { success: false, error: 'missing-id' };
+
+    // 1) try direct doc fetch (treat as remote doc id)
+    try {
+      const snap = await getDoc(doc(db, 'orders', anyId));
+      if (snap.exists()) return { success: true, docId: snap.id, order: { id: snap.id, ...snap.data() } };
+    } catch (e) {
+      // ignore and fallthrough to queries
+    }
+
+    // 2) try to find by localId or remoteId field
+    // Query where localId == anyId OR remoteId == anyId
+    // Note: single-field queries don't require composite index
+    const byLocal = query(collection(db, 'orders'), where('localId', '==', anyId), limit(1));
+    const snapLocal = await getDocs(byLocal);
+    if (!snapLocal.empty) {
+      const d = snapLocal.docs[0];
+      return { success: true, docId: d.id, order: { id: d.id, ...d.data() } };
+    }
+
+    const byRemote = query(collection(db, 'orders'), where('remoteId', '==', anyId), limit(1));
+    const snapRemote = await getDocs(byRemote);
+    if (!snapRemote.empty) {
+      const d = snapRemote.docs[0];
+      return { success: true, docId: d.id, order: { id: d.id, ...d.data() } };
+    }
+
+    // nothing found
+    return { success: false, error: 'not-found' };
+  } catch (err) {
+    console.error('findOrderByAnyId error', err);
+    return { success: false, error: err };
+  }
+};
+
+// Small wrapper used by update helpers: accepts doc id or localId and resolves to doc id
+async function _resolveDocIdMaybe(anyId) {
+  // if looks like Firestore doc id? we still try getDoc but prefer using findOrderByAnyId
+  const r = await window.FirebaseDB.findOrderByAnyId(anyId);
+  if (r.success) return r.docId;
+  return null;
+}
+
+// Patch updateOrderLocation to accept either doc id or localId
+const _origUpdateOrderLocation = window.FirebaseDB && window.FirebaseDB.updateOrderLocation;
+window.FirebaseDB.updateOrderLocation = async function(orderId, { lat, lng } = {}) {
+  if (!orderId) return { success:false, error:'missing-orderId' };
+  try {
+    let docId = orderId;
+    // if this looks like a local id or simply not a doc that exists, try to resolve
+    const maybe = await _resolveDocIdMaybe(orderId);
+    if (maybe) docId = maybe;
+
+    const orderRef = doc(db, 'orders', docId);
+    await updateDoc(orderRef, {
+      clientLocation: { lat: Number(lat), lng: Number(lng), ts: serverTimestamp() }
+    });
+    return { success: true, docId };
+  } catch (err) {
+    console.error('updateOrderLocation error', err);
+    return { success: false, error: err };
+  }
+};
+
+// Patch updateDeliveryLocation similarly:
+const _origUpdateDeliveryLocation = window.FirebaseDB && window.FirebaseDB.updateDeliveryLocation;
+window.FirebaseDB.updateDeliveryLocation = async function(orderId, { lat, lng } = {}) {
+  if (!orderId) return { success:false, error:'missing-orderId' };
+  try {
+    let docId = orderId;
+    const maybe = await _resolveDocIdMaybe(orderId);
+    if (maybe) docId = maybe;
+
+    const orderRef = doc(db, 'orders', docId);
+    await updateDoc(orderRef, {
+      deliveryLocation: { lat: Number(lat), lng: Number(lng), ts: serverTimestamp() }
+    });
+    return { success: true, docId };
+  } catch (err) {
+    console.error('updateDeliveryLocation error', err);
+    return { success: false, error: err };
+  }
+};
+
+
 // End of file
