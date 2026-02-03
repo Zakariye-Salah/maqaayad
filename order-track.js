@@ -160,55 +160,65 @@ function showMapForBoth(clientLoc, deliveryLoc) {
 // Fetch + subscribe
 // Fetch + subscribe (robust)
 
+// Fetch + subscribe (robust)
 (async function init() {
-if (!orderParam) {
-statusEl.innerHTML = '<div style="color:#666">No order ID supplied in URL.</div>';
-return;
-}
+  if (!orderParam) {
+    statusEl.innerHTML = '<div style="color:#666">No order ID supplied in URL.</div>';
+    return;
+  }
 
-// WAIT for database.js to load and attach window.FirebaseDB (important on some browsers / load orders)
-const dbReady = await waitForFirebaseDB(4000);
-if (!dbReady) {
-console.warn('FirebaseDB helper not available after wait; will still try local fallback.');
-}
+  // WAIT for database.js to load and attach window.FirebaseDB (important on some browsers / load orders)
+  const dbReady = await waitForFirebaseDB(4000);
+  if (!dbReady) {
+    console.warn('FirebaseDB helper not available after wait; will still try local fallback.');
+  }
 
-
-// If we got a result render it; otherwise show not found with console hint.
-if (order) {
-renderOrder(order);
-
-// If we resolved a Firestore doc id, subscribe to realtime updates
-if (orderDocId && window.FirebaseDB && typeof window.FirebaseDB.onOrderSnapshot === 'function') {
+  // Try to resolve the order (server first, fallback local)
+  let order = null;
   try {
-    subscribeOrderRealtime(orderDocId);
-  } catch (e) {
-    console.warn('init: subscribeOrderRealtime failed', e);
+    order = await resolveOrder(orderParam);
+  } catch (err) {
+    console.warn('init: resolveOrder threw:', err);
   }
-} else {
-  // attempt to derive doc id if order contains remoteId later
-  if (!orderDocId && order && (order.remoteId || order.id)) {
-    orderDocId = order.remoteId || order.id;
+
+  // If we got a result render it; otherwise show not found with console hint.
+  if (order) {
     try {
-      subscribeOrderRealtime(orderDocId);
-    } catch (e) { /* ignore */ }
+      renderOrder(order);
+
+      // If we resolved a Firestore doc id, subscribe to realtime updates
+      if (orderDocId && window.FirebaseDB && typeof window.FirebaseDB.onOrderSnapshot === 'function') {
+        try {
+          subscribeOrderRealtime(orderDocId);
+        } catch (e) {
+          console.warn('init: subscribeOrderRealtime failed', e);
+        }
+      } else {
+        // attempt to derive doc id if order contains remoteId later
+        if (!orderDocId && order && (order.remoteId || order.id)) {
+          orderDocId = order.remoteId || order.id;
+          try { subscribeOrderRealtime(orderDocId); } catch (e) { /* ignore */ }
+        }
+      }
+    } catch (e) {
+      console.warn('init: error while rendering/subscribing:', e);
+    }
+    return;
   }
-}
-return;
-}
 
-// Nothing resolved — show helpful message + console hints
-statusEl.innerHTML = `<div style="color:#b00">Order ${orderParam} not found.</div>`;
-console.warn('Order could not be resolved. Check console for DB errors (permission-denied / missing helper).');
+  // Nothing resolved — show helpful message + console hints
+  statusEl.innerHTML = `<div style="color:#b00">Order ${orderParam} not found.</div>`;
+  console.warn('Order could not be resolved. Check console for DB errors (permission-denied / missing helper).');
 
-// Helpful / automated debugging: if Firebase helper exists, try to call getOrder to capture error
-if (window.FirebaseDB && typeof window.FirebaseDB.getOrder === 'function') {
-try {
-  const debug = await window.FirebaseDB.getOrder(orderParam);
-  console.info('Debug getOrder returned:', debug);
-} catch (e) {
-  console.warn('Debug getOrder threw:', e);
-}
-}
+  // Helpful / automated debugging: if Firebase helper exists, try to call getOrder to capture error
+  if (window.FirebaseDB && typeof window.FirebaseDB.getOrder === 'function') {
+    try {
+      const debug = await window.FirebaseDB.getOrder(orderParam);
+      console.info('Debug getOrder returned:', debug);
+    } catch (e) {
+      console.warn('Debug getOrder threw:', e);
+    }
+  }
 })();
 
 // ---- Customer share handler ----
@@ -286,7 +296,7 @@ btnDriver && btnDriver.addEventListener('click', async () => {
         await window.FirebaseDB.updateDeliveryLocation(target || orderParam, { lat, lng });
       } catch(e){ console.warn('updateDeliveryLocation failed', e); }
     } else {
-      // store local fallback so admin who uses same device can see it
+      // store local fallback so Q who uses same device can see it
       localStorage.setItem('delivery_' + (orderParam||'unknown'), JSON.stringify({ lat, lng, ts:Date.now() }));
     }
     // update map to show delivery position too
