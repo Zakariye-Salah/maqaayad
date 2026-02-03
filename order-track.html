@@ -5,6 +5,16 @@
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Order tracking- afro daafi and pizza</title>
   <link rel="stylesheet" href="style.css">
+  <!-- add inside <head> -->
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+  /* ensure map container fills card */
+  #map { height: 60vh; min-height: 320px; }
+  .map-controls { margin-top:8px; text-align:right; }
+  .map-info { font-size:13px; color:#333; margin:8px 0; }
+</style>
+
   <style>
     body{font-family:system-ui,Segoe UI,Roboto,Arial; margin:0; padding:12px; background:#f7f9fb}
     .card{background:#fff;border-radius:8px;padding:12px;box-shadow:0 6px 18px rgba(0,0,0,0.06); max-width:900px;margin:10px auto}
