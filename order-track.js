@@ -153,10 +153,41 @@ let lastRiderPos = null;
 // load custom icons (please include these files in img/)
 const riderImg = 'img/motorcycle.png';
 const clientImg = 'img/home.png';
-
+// ---------- Icon preload (REPLACEMENT) ----------
 let riderIcon = null, clientIcon = null;
-fetch(riderImg, { method: 'HEAD' }).then(r => { if (r.ok) riderIcon = createImageIcon(riderImg, [42, 42]); }).catch(()=>{});
-fetch(clientImg, { method: 'HEAD' }).then(r => { if (r.ok) clientIcon = createImageIcon(clientImg, [36,36]); }).catch(()=>{});
+
+// helper loads an image and resolves true if ok
+function preloadImageIcon(url, size = [36,36]) {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      try { resolve(createImageIcon(url, size)); } catch(e) { resolve(null); }
+    };
+    img.onerror = () => resolve(null);
+    // avoid caching oddities in some dev setups
+    img.src = url + (url.indexOf('?') === -1 ? '?v=1' : '&v=1');
+    // safety: timeout if image doesn't load in 3s
+    setTimeout(() => resolve(null), 3000);
+  });
+}
+
+// start preloads and keep a promise we can await
+const __iconsPromise = (async () => {
+  try {
+    const [r, c] = await Promise.allSettled([
+      preloadImageIcon(riderImg, [42,42]),
+      preloadImageIcon(clientImg, [36,36])
+    ]);
+    if (r.status === 'fulfilled' && r.value) riderIcon = r.value;
+    if (c.status === 'fulfilled' && c.value) clientIcon = c.value;
+  } catch(e) {
+    // ignore, we'll fallback to heading/div icons
+  }
+})();
+
+function iconsReady() {
+  return __iconsPromise;
+}
 
 // Wait for Firebase helper
 function waitForFirebaseDB(ms = 4000) {
@@ -192,6 +223,8 @@ function ensureMap() {
 
 // Render order object onto page & map
 function renderOrder(o) {
+  if (!o.deliveryLocation) console.info('Order has no deliveryLocation (rider not shared yet). Order object:', o);
+
   if (!o) {
     statusEl.innerHTML = `<div style="color:#b00">Order ${orderParam || ''} not found.</div>`;
     return;
@@ -213,17 +246,38 @@ function renderOrder(o) {
   } else {
     document.getElementById('mapCard').style.display = 'none';
   }
+  
 }
 
 // update markers & route from current order object
 async function updateMapFromOrder(o) {
+  // ensure icons loaded before placing markers
+  try { await iconsReady(); } catch(e) { /* continue with fallbacks */ }
+
   ensureMap();
-  const clientLoc = o.clientLocation && typeof o.clientLocation.lat !== 'undefined' && typeof o.clientLocation.lng !== 'undefined'
-    ? [parseFloat(o.clientLocation.lat), parseFloat(o.clientLocation.lng)]
-    : null;
-  const riderLoc = o.deliveryLocation && typeof o.deliveryLocation.lat !== 'undefined' && typeof o.deliveryLocation.lng !== 'undefined'
-    ? [parseFloat(o.deliveryLocation.lat), parseFloat(o.deliveryLocation.lng)]
-    : null;
+
+  // debug log and normalize locations (handles string/number/Timestamp)
+  function normLoc(loc) {
+    if (!loc) return null;
+    // support Firestore serverTimestamp wrapper (has .seconds) or nested ts
+    const latRaw = loc.lat ?? (loc.latitude ?? null);
+    const lngRaw = loc.lng ?? (loc.longitude ?? null);
+    const lat = (typeof latRaw === 'string') ? parseFloat(latRaw) : latRaw;
+    const lng = (typeof lngRaw === 'string') ? parseFloat(lngRaw) : lngRaw;
+    if (lat === null || typeof lat === 'undefined' || lng === null || typeof lng === 'undefined') return null;
+    if (Number.isNaN(Number(lat)) || Number.isNaN(Number(lng))) return null;
+    return [Number(lat), Number(lng)];
+  }
+
+  // debug: print raw payloads (use console.log for dev)
+  try {
+    console.debug('updateMapFromOrder: raw clientLocation:', o.clientLocation, 'raw deliveryLocation:', o.deliveryLocation);
+  } catch(e){}
+
+  const clientLoc = normLoc(o.clientLocation);
+  const riderLoc  = normLoc(o.deliveryLocation);
+
+
 
   // place/update client marker
   if (clientLoc) {
@@ -239,18 +293,27 @@ async function updateMapFromOrder(o) {
   if (riderLoc) {
     // if no marker create heading icon + marker group
     if (!markers.rider) {
-      // rider marker uses heading icon for rotation; fallback to image icon if provided
+      // if we have a raster icon, use it. otherwise use the heading div icon.
       if (riderIcon) {
         markers.rider = L.marker(riderLoc, { icon: riderIcon, title: 'Rider' }).addTo(map).bindPopup('Rider location');
       } else {
-        // create heading marker initially pointing north
-        headingMarker = L.marker(riderLoc, { icon: createHeadingIcon('#d35400', 36, 0) }).addTo(map).bindPopup('Rider (heading)');
+        // use heading icon fallback; if heading provided in order data, rotate accordingly
+        const headingDeg = (o.deliveryLocation && typeof o.deliveryLocation.heading !== 'undefined') ? Number(o.deliveryLocation.heading || 0) : 0;
+        headingMarker = L.marker(riderLoc, { icon: createHeadingIcon('#d35400', 36, headingDeg) }).addTo(map).bindPopup('Rider (heading)');
         markers.rider = headingMarker;
       }
     } else {
       await animateMarkerTo(markers.rider, riderLoc, SMOOTH_ANIM_MS);
+      // if riderIcon became available later (loaded async) and we currently use headingMarker, swap to image icon
+      if (riderIcon && markers.rider && markers.rider.options && markers.rider.options.icon && markers.rider.options.icon.options && markers.rider.options.icon.options.html) {
+        // currently a divIcon (heading), replace with image icon
+        try {
+          markers.rider.setIcon(riderIcon);
+        } catch(e){ /* ignore */ }
+      }
     }
     markers.rider.setLatLng(riderLoc);
+    
   }
 
   // draw route if both present using OSRM
