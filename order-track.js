@@ -138,67 +138,120 @@ function renderOrder(o) {
   }
 }
 
+// global map handle (keeps map alive between updates)
+let __ltMap = null;
+let __ltMarkers = { client: null, delivery: null };
+let __ltRoute = null;
+
+// haversine distance (km)
+function _haversineKm(lat1, lon1, lat2, lon2) {
+  const toRad = v => v * Math.PI / 180;
+  const R = 6371; // km
+  const dLat = toRad(lat2 - lat1);
+  const dLon = toRad(lon2 - lon1);
+  const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+            Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) *
+            Math.sin(dLon/2) * Math.sin(dLon/2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+  return R * c;
+}
+
 function showMapForBoth(clientLoc, deliveryLoc) {
   document.getElementById('mapCard').style.display = 'block';
   const frame = document.getElementById('map');
 
-  // Helper: create an OpenStreetMap embed centered between two points
-  function osmEmbedBetween(a, b) {
-    // center point
-    const latC = (parseFloat(a.lat) + parseFloat(b.lat)) / 2;
-    const lngC = (parseFloat(a.lng) + parseFloat(b.lng)) / 2;
-
-    // compute bbox with some margin (in degrees) so both points are visible
-    const latMin = Math.min(a.lat, b.lat) - 0.01;
-    const latMax = Math.max(a.lat, b.lat) + 0.01;
-    const lngMin = Math.min(a.lng, b.lng) - 0.01;
-    const lngMax = Math.max(a.lng, b.lng) + 0.01;
-
-    const bbox = `${lngMin}%2C${latMin}%2C${lngMax}%2C${latMax}`;
-    // Create an embed with a center marker (can't easily place two custom markers without third-party service)
-    const embedUrl = `https://www.openstreetmap.org/export/embed.html?bbox=${bbox}&layer=mapnik&marker=${latC}%2C${lngC}`;
-    return { embedUrl, latC, lngC };
+  // ensure map container is empty for Leaflet to attach cleanly (Leaflet handles reuse)
+  if (!__ltMap) {
+    // create map
+    frame.innerHTML = '<div id="leafletMap" style="width:100%; height:100%"></div><div id="mapExtras" style="padding:8px"></div>';
+    __ltMap = L.map('leafletMap', { zoomControl: true, attributionControl: true }).setView([0,0], 13);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+      attribution: '&copy; OpenStreetMap contributors'
+    }).addTo(__ltMap);
   }
 
-  // If we have a client location, prefer showing it (and optionally delivery)
-  if (clientLoc && clientLoc.lat && clientLoc.lng) {
-    // if delivery exists, show an embeddable map (OSM) centered between them and offer a directions link
-    if (deliveryLoc && deliveryLoc.lat && deliveryLoc.lng) {
-      const { embedUrl } = osmEmbedBetween(clientLoc, deliveryLoc);
+  // clear previous markers/route but keep map instance
+  if (__ltMarkers.client) { __ltMap.removeLayer(__ltMarkers.client); __ltMarkers.client = null; }
+  if (__ltMarkers.delivery) { __ltMap.removeLayer(__ltMarkers.delivery); __ltMarkers.delivery = null; }
+  if (__ltRoute) { __ltMap.removeLayer(__ltRoute); __ltRoute = null; }
 
-      // show OSM iframe + link button to open Google Maps directions in a new tab
-      const gmapsDir = `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(deliveryLoc.lat + ',' + deliveryLoc.lng)}&destination=${encodeURIComponent(clientLoc.lat + ',' + clientLoc.lng)}&travelmode=driving`;
-      frame.innerHTML = `
-        <div style="display:flex; flex-direction:column; height:100%;">
-          <div style="flex:1; min-height:280px; border-radius:6px; overflow:hidden;">
-            <iframe src="${embedUrl}" style="width:100%; height:100%; border:0;" loading="lazy"></iframe>
-          </div>
-          <div style="padding:8px; text-align:right;">
-            <a class="btn btn-primary" href="${gmapsDir}" target="_blank" rel="noopener">Open directions in Google Maps</a>
-            <button class="btn" id="openOsmInNewTab" style="margin-left:8px;">Open map (larger)</button>
-          </div>
+  // convenience to format popup content
+  function popupFor(type, loc) {
+    const ts = loc && loc.ts ? (loc.ts.seconds ? new Date(loc.ts.seconds*1000).toLocaleString() : new Date(loc.ts).toLocaleString()) : '';
+    return `<div><strong>${type}</strong><div>${loc.lat.toFixed(6)}, ${loc.lng.toFixed(6)}</div><div style="font-size:12px;color:#666">${ts}</div></div>`;
+  }
+
+  // place markers if present and build list of LatLngs for route/bounds
+  const pts = [];
+  if (clientLoc && typeof clientLoc.lat !== 'undefined' && typeof clientLoc.lng !== 'undefined') {
+    __ltMarkers.client = L.marker([parseFloat(clientLoc.lat), parseFloat(clientLoc.lng)], { title: 'Customer location' })
+      .addTo(__ltMap)
+      .bindPopup(popupFor('Customer', clientLoc));
+    pts.push([parseFloat(clientLoc.lat), parseFloat(clientLoc.lng)]);
+  }
+  if (deliveryLoc && typeof deliveryLoc.lat !== 'undefined' && typeof deliveryLoc.lng !== 'undefined') {
+    __ltMarkers.delivery = L.marker([parseFloat(deliveryLoc.lat), parseFloat(deliveryLoc.lng)], { title: 'Rider location' })
+      .addTo(__ltMap)
+      .bindPopup(popupFor('Rider', deliveryLoc));
+    pts.push([parseFloat(deliveryLoc.lat), parseFloat(deliveryLoc.lng)]);
+  }
+
+  // draw simple straight-line route if both points exist
+  if (pts.length === 2) {
+    __ltRoute = L.polyline(pts, { color: '#007bff', weight: 4, opacity: 0.8 }).addTo(__ltMap);
+
+    // compute distance & rough ETA (approx)
+    const distKm = _haversineKm(pts[0][0], pts[0][1], pts[1][0], pts[1][1]);
+    const avgSpeedKmh = 40; // estimated driving speed (customize)
+    const etaMinutes = Math.max(1, Math.round((distKm / avgSpeedKmh) * 60));
+    const infoHtml = `<div class="map-info"><strong>Distance:</strong> ${distKm.toFixed(2)} km • <strong>Approx ETA:</strong> ${etaMinutes} min (est)</div>`;
+
+    // action links:
+    // 1) Open directions with origin=delivery & destination=client (useful for desktop admin)
+    const gmapsDirections = `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(pts[1][0]+','+pts[1][1])}&destination=${encodeURIComponent(pts[0][0]+','+pts[0][1])}&travelmode=driving`;
+    // 2) Navigate from this device to client (omit origin so Google uses device current location)
+    const gmapsNavigateFromDevice = `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(pts[0][0]+','+pts[0][1])}&travelmode=driving`;
+    // 3) Street View (panorama) at client location
+    const gmapsStreetView = `https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${encodeURIComponent(pts[0][0]+','+pts[0][1])}`;
+
+    const controlsHtml = `
+      ${infoHtml}
+      <div class="map-controls">
+        <a class="btn btn-primary" href="${gmapsDirections}" target="_blank" rel="noopener">Open directions (Google Maps)</a>
+        <a class="btn" style="margin-left:8px" href="${gmapsNavigateFromDevice}" target="_blank" rel="noopener">Navigate from my device</a>
+        <a class="btn" style="margin-left:8px" href="${gmapsStreetView}" target="_blank" rel="noopener">Open Street View</a>
+      </div>
+    `;
+
+    document.getElementById('mapExtras').innerHTML = controlsHtml;
+
+    // fit map to route with padding
+    const bounds = L.latLngBounds(pts);
+    __ltMap.fitBounds(bounds.pad(0.25));
+  } else {
+    // only one point present: show single point and show actions for that point
+    const single = pts[0] || null;
+    let extrasHtml = `<div class="map-info">Showing location.</div>`;
+    if (single) {
+      const gmapsSingle = `https://www.google.com/maps?q=${encodeURIComponent(single[0]+','+single[1])}&z=16`;
+      const gmapsNav = `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(single[0]+','+single[1])}&travelmode=driving`;
+      const gmapsPano = `https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${encodeURIComponent(single[0]+','+single[1])}`;
+      extrasHtml += `
+        <div class="map-controls">
+          <a class="btn btn-primary" href="${gmapsSingle}" target="_blank" rel="noopener">Open in Google Maps</a>
+          <a class="btn" style="margin-left:8px" href="${gmapsNav}" target="_blank" rel="noopener">Navigate from my device</a>
+          <a class="btn" style="margin-left:8px" href="${gmapsPano}" target="_blank" rel="noopener">Street View</a>
         </div>
       `;
-
-      // open the same OSM view in a new tab when requested
-      setTimeout(()=> {
-        const btn = document.getElementById('openOsmInNewTab');
-        if (btn) btn.addEventListener('click', ()=> window.open(embedUrl.replace('/export/embed.html', '/?'), '_blank'));
-      }, 20);
-
-    } else {
-      // single client location — Google Maps embed (works) OR fallback to OSM if you prefer
-      const url = `https://www.google.com/maps?q=${clientLoc.lat},${clientLoc.lng}&z=16&output=embed`;
-      frame.innerHTML = `<iframe src="${url}" style="width:100%; height:100%; border:0" loading="lazy"></iframe>`;
     }
-  } else if (deliveryLoc && deliveryLoc.lat && deliveryLoc.lng) {
-    // no client location, but delivery exists — show it
-    const url = `https://www.google.com/maps?q=${deliveryLoc.lat},${deliveryLoc.lng}&z=16&output=embed`;
-    frame.innerHTML = `<iframe src="${url}" style="width:100%; height:100%; border:0" loading="lazy"></iframe>`;
-  } else {
-    frame.innerHTML = `<div style="padding:12px;">Location not available yet.</div>`;
+    document.getElementById('mapExtras').innerHTML = extrasHtml;
+    if (single) {
+      __ltMap.setView(single, 15);
+    }
   }
 }
+
 
 
 // Fetch + subscribe
