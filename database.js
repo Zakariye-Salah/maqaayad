@@ -509,18 +509,19 @@ window.FirebaseDB.deleteContact = async function(contactId) {
 };
 // -------- Order tracking / payment helpers (add to window.FirebaseDB) ---------
 
-/**
- * Update customer (client) location for an order.
- * Expects orderId (string) and { lat, lng } numbers.
- */
-window.FirebaseDB.updateOrderLocation = async function(orderId, { lat, lng } = {}) {
+
+
+// REPLACE updateOrderLocation with this block (supports optional deviceId and returns docId)
+window.FirebaseDB.updateOrderLocation = async function(orderId, { lat, lng, deviceId } = {}) {
   if (!orderId) return { success: false, error: 'missing-orderId' };
   try {
     const orderRef = doc(db, 'orders', orderId);
-    await updateDoc(orderRef, {
+    const payload = {
       clientLocation: { lat: Number(lat), lng: Number(lng), ts: serverTimestamp() }
-    });
-    return { success: true };
+    };
+    if (deviceId) payload.clientDeviceId = String(deviceId);
+    await updateDoc(orderRef, payload);
+    return { success: true, docId: orderRef.id || orderId };
   } catch (err) {
     console.error('updateOrderLocation error', err);
     return { success: false, error: err };
@@ -531,19 +532,22 @@ window.FirebaseDB.updateOrderLocation = async function(orderId, { lat, lng } = {
  * Update delivery rider location for an order.
  * Saves under deliveryLocation field with timestamp.
  */
-window.FirebaseDB.updateDeliveryLocation = async function(orderId, { lat, lng } = {}) {
+window.FirebaseDB.updateDeliveryLocation = async function(orderId, { lat, lng, deviceId } = {}) {
   if (!orderId) return { success: false, error: 'missing-orderId' };
   try {
     const orderRef = doc(db, 'orders', orderId);
-    await updateDoc(orderRef, {
+    const payload = {
       deliveryLocation: { lat: Number(lat), lng: Number(lng), ts: serverTimestamp() }
-    });
-    return { success: true };
+    };
+    if (deviceId) payload.deliveryDeviceId = String(deviceId);
+    await updateDoc(orderRef, payload);
+    return { success: true, docId: orderRef.id || orderId };
   } catch (err) {
     console.error('updateDeliveryLocation error', err);
     return { success: false, error: err };
   }
 };
+
 
 /**
  * Get single order by ID (returns { success, order })
