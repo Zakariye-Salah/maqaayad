@@ -105,13 +105,14 @@ return null;
 // subscribe to realtime order changes when we have a doc id
 function subscribeOrderRealtime(docId) {
   if (!docId || !window.FirebaseDB || typeof window.FirebaseDB.onOrderSnapshot !== 'function') return;
-  // unsubscribe previous
   if (orderUnsub) try { orderUnsub(); } catch(e){}
   orderUnsub = window.FirebaseDB.onOrderSnapshot(docId, (order) => {
+    console.log('onOrderSnapshot data for', docId, order);
     currentOrder = order;
     renderOrder(order);
   });
 }
+
 
 function renderOrder(o) {
   if (!o) {
@@ -225,17 +226,18 @@ function showMapForBoth(clientLoc, deliveryLoc) {
 btnShare && btnShare.addEventListener('click', async () => {
   if (!navigator.geolocation) { alert('Geolocation not supported'); return; }
 
-  // ensure we have a doc id to update server
-  // if currentOrder has id use it; else try to resolve first
-  let updateTarget = orderDocId || (currentOrder && (currentOrder.id || currentOrder.remoteId)) || null;
+  // prefer the Firestore doc id if we have it
+  let updateTarget = orderDocId || (currentOrder && (currentOrder.id || currentOrder.remoteId)) || orderParam;
+
   if (!updateTarget) {
     // attempt to resolve before sending
     const r = await resolveOrder(orderParam);
-    updateTarget = orderDocId || (r && (r.id || r.remoteId)) || null;
+    updateTarget = orderDocId || (r && (r.id || r.remoteId)) || orderParam;
   }
 
   navigator.geolocation.getCurrentPosition(async (pos) => {
     const lat = pos.coords.latitude, lng = pos.coords.longitude;
+
     // local update for visitor copy
     try {
       const localOrders = JSON.parse(localStorage.getItem('orders') || '[]');
@@ -246,20 +248,25 @@ btnShare && btnShare.addEventListener('click', async () => {
       }
     } catch (e) { console.warn('local save failed', e); }
 
-    // server update (resolves doc id inside)
+    // server update (resolves doc id inside if required)
     if (window.FirebaseDB && typeof window.FirebaseDB.updateOrderLocation === 'function') {
       try {
+        console.log('Sending updateOrderLocation -> target:', updateTarget, { lat, lng });
         const upd = await window.FirebaseDB.updateOrderLocation(updateTarget || orderParam, { lat, lng });
+        console.log('updateOrderLocation response:', upd);
         if (upd && upd.success) {
+          // If the helper returned a docId, store it for later subscriptions/updates
+          if (upd.docId) orderDocId = upd.docId;
+          // refresh UI from the newly shared location (client + maybe delivery)
           showMapForBoth({lat,lng}, currentOrder && currentOrder.deliveryLocation ? currentOrder.deliveryLocation : null);
           showToast && showToast('Location shared');
         } else {
-          console.warn('updateOrderLocation returned:', upd);
+          console.warn('updateOrderLocation failed result:', upd);
           showToast && showToast('Could not send location to server (still shared locally).');
         }
       } catch (err) {
-        console.warn('updateOrderLocation failed', err);
-        showToast && showToast('Failed to send location to server.');
+        console.warn('updateOrderLocation threw:', err);
+        showToast && showToast('Failed to send location to server — see console.');
       }
     } else {
       // no server helper: shared only locally
@@ -287,26 +294,28 @@ btnDriver && btnDriver.addEventListener('click', async () => {
     showToast && showToast('Already sharing location');
     return;
   }
-
   deliveryWatchId = navigator.geolocation.watchPosition(async (pos) => {
     const lat = pos.coords.latitude, lng = pos.coords.longitude;
-    // update server if helper exists (resolves doc id if required)
-    if (window.FirebaseDB && typeof window.FirebaseDB.updateDeliveryLocation === 'function') {
-      try {
-        await window.FirebaseDB.updateDeliveryLocation(target || orderParam, { lat, lng });
-      } catch(e){ console.warn('updateDeliveryLocation failed', e); }
-    } else {
-      // store local fallback so Q who uses same device can see it
-      localStorage.setItem('delivery_' + (orderParam||'unknown'), JSON.stringify({ lat, lng, ts:Date.now() }));
+    const target = orderDocId || (currentOrder && (currentOrder.id || currentOrder.remoteId)) || orderParam;
+    try {
+      if (window.FirebaseDB && typeof window.FirebaseDB.updateDeliveryLocation === 'function') {
+        console.log('Sending updateDeliveryLocation -> target:', target, { lat, lng });
+        const upd = await window.FirebaseDB.updateDeliveryLocation(target || orderParam, { lat, lng });
+        console.log('updateDeliveryLocation response:', upd);
+        if (upd && upd.success && upd.docId) orderDocId = upd.docId;
+      } else {
+        localStorage.setItem('delivery_' + (orderParam||'unknown'), JSON.stringify({ lat, lng, ts:Date.now() }));
+      }
+    } catch(e) {
+      console.warn('updateDeliveryLocation failed:', e);
     }
-    // update map to show delivery position too
     const clientLoc = currentOrder && currentOrder.clientLocation ? currentOrder.clientLocation : null;
     showMapForBoth(clientLoc, {lat,lng});
   }, (err) => {
     console.warn('watchPosition error', err);
     alert('Unable to watch position. Please allow location and ensure GPS is ON.');
   }, { enableHighAccuracy:true, maximumAge:2000, timeout:10000 });
-
+  
   showToast && showToast('Delivery location sharing started. Keep this page open.');
 });
 
