@@ -141,22 +141,65 @@ function renderOrder(o) {
 function showMapForBoth(clientLoc, deliveryLoc) {
   document.getElementById('mapCard').style.display = 'block';
   const frame = document.getElementById('map');
-  // If both present, use Google Maps directions view (rider -> customer)
+
+  // Helper: create an OpenStreetMap embed centered between two points
+  function osmEmbedBetween(a, b) {
+    // center point
+    const latC = (parseFloat(a.lat) + parseFloat(b.lat)) / 2;
+    const lngC = (parseFloat(a.lng) + parseFloat(b.lng)) / 2;
+
+    // compute bbox with some margin (in degrees) so both points are visible
+    const latMin = Math.min(a.lat, b.lat) - 0.01;
+    const latMax = Math.max(a.lat, b.lat) + 0.01;
+    const lngMin = Math.min(a.lng, b.lng) - 0.01;
+    const lngMax = Math.max(a.lng, b.lng) + 0.01;
+
+    const bbox = `${lngMin}%2C${latMin}%2C${lngMax}%2C${latMax}`;
+    // Create an embed with a center marker (can't easily place two custom markers without third-party service)
+    const embedUrl = `https://www.openstreetmap.org/export/embed.html?bbox=${bbox}&layer=mapnik&marker=${latC}%2C${lngC}`;
+    return { embedUrl, latC, lngC };
+  }
+
+  // If we have a client location, prefer showing it (and optionally delivery)
   if (clientLoc && clientLoc.lat && clientLoc.lng) {
+    // if delivery exists, show an embeddable map (OSM) centered between them and offer a directions link
     if (deliveryLoc && deliveryLoc.lat && deliveryLoc.lng) {
-      const url = `https://www.google.com/maps/dir/?api=1&origin=${deliveryLoc.lat},${deliveryLoc.lng}&destination=${clientLoc.lat},${clientLoc.lng}&travelmode=driving`;
-      frame.innerHTML = `<iframe src="${url}" style="width:100%; height:100%; border:0"></iframe>`;
+      const { embedUrl } = osmEmbedBetween(clientLoc, deliveryLoc);
+
+      // show OSM iframe + link button to open Google Maps directions in a new tab
+      const gmapsDir = `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(deliveryLoc.lat + ',' + deliveryLoc.lng)}&destination=${encodeURIComponent(clientLoc.lat + ',' + clientLoc.lng)}&travelmode=driving`;
+      frame.innerHTML = `
+        <div style="display:flex; flex-direction:column; height:100%;">
+          <div style="flex:1; min-height:280px; border-radius:6px; overflow:hidden;">
+            <iframe src="${embedUrl}" style="width:100%; height:100%; border:0;" loading="lazy"></iframe>
+          </div>
+          <div style="padding:8px; text-align:right;">
+            <a class="btn btn-primary" href="${gmapsDir}" target="_blank" rel="noopener">Open directions in Google Maps</a>
+            <button class="btn" id="openOsmInNewTab" style="margin-left:8px;">Open map (larger)</button>
+          </div>
+        </div>
+      `;
+
+      // open the same OSM view in a new tab when requested
+      setTimeout(()=> {
+        const btn = document.getElementById('openOsmInNewTab');
+        if (btn) btn.addEventListener('click', ()=> window.open(embedUrl.replace('/export/embed.html', '/?'), '_blank'));
+      }, 20);
+
     } else {
+      // single client location — Google Maps embed (works) OR fallback to OSM if you prefer
       const url = `https://www.google.com/maps?q=${clientLoc.lat},${clientLoc.lng}&z=16&output=embed`;
-      frame.innerHTML = `<iframe src="${url}" style="width:100%; height:100%; border:0"></iframe>`;
+      frame.innerHTML = `<iframe src="${url}" style="width:100%; height:100%; border:0" loading="lazy"></iframe>`;
     }
   } else if (deliveryLoc && deliveryLoc.lat && deliveryLoc.lng) {
+    // no client location, but delivery exists — show it
     const url = `https://www.google.com/maps?q=${deliveryLoc.lat},${deliveryLoc.lng}&z=16&output=embed`;
-    frame.innerHTML = `<iframe src="${url}" style="width:100%; height:100%; border:0"></iframe>`;
+    frame.innerHTML = `<iframe src="${url}" style="width:100%; height:100%; border:0" loading="lazy"></iframe>`;
   } else {
     frame.innerHTML = `<div style="padding:12px;">Location not available yet.</div>`;
   }
 }
+
 
 // Fetch + subscribe
 // Fetch + subscribe (robust)
