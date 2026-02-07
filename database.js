@@ -9,6 +9,7 @@ import { deleteDoc } from "https://www.gstatic.com/firebasejs/9.22.2/firebase-fi
 import {
   getFirestore,
   collection,
+  
   addDoc,
   getDocs,
   query,
@@ -21,7 +22,8 @@ import {
   serverTimestamp,
   getDoc,
   startAfter,
-  Timestamp
+  Timestamp,
+  setDoc
 } from "https://www.gstatic.com/firebasejs/9.22.2/firebase-firestore.js";
 
 import {
@@ -99,7 +101,7 @@ const __dbCache = {
 // Helper: find admin doc by email
 async function findAdminDocByEmail(email) {
   try {
-    const collectionsToTry = ["admins", "admin"];
+    const collectionsToTry = ["admin"];
     for (const colName of collectionsToTry) {
       try {
         const q = query(collection(db, colName), where("email", "==", email));
@@ -329,7 +331,7 @@ window.FirebaseDB = {
 
   updateAdminProfile: async function(adminDocId, profileUpdates) {
     try {
-      const adminRef = doc(db, "admins", adminDocId);
+      const adminRef = doc(db, "admin", adminDocId);
       await updateDoc(adminRef, profileUpdates);
       return { success: true };
     } catch (err) {
@@ -507,6 +509,196 @@ window.FirebaseDB.deleteContact = async function(contactId) {
     return { success: false, error: err };
   }
 };
+
+
+// --- add to window.FirebaseDB in database.js ---
+
+// List menu items (tries common collection names): returns { success:true, items: [...] }
+window.FirebaseDB.listMenuItems = async function({ limit: L = 500 } = {}) {
+  const collectionsToTry = ['menu', 'foods', 'menuItems', 'items', 'foods_list'];
+  try {
+    for (const col of collectionsToTry) {
+      try {
+        const q = query(collection(db, col), orderBy('createdAt', 'desc'), limit(Math.min(Math.max(Number(L)||100, 1), 1000)));
+        const snap = await getDocs(q);
+        if (snap && !snap.empty) {
+          const items = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+          return { success: true, items };
+        }
+      } catch (inner) {
+        // ignore missing collection or permission errors and try next
+        // console.warn(`listMenuItems: collection "${col}" read failed`, inner && inner.message ? inner.message : inner);
+      }
+    }
+    return { success: true, items: [] };
+  } catch (err) {
+    console.error('listMenuItems error', err);
+    return { success: false, error: err };
+  }
+};
+
+// Save a table label (persisted to 'tables' collection). Returns { success, id, table }
+window.FirebaseDB.saveTable = async function(label) {
+  try {
+    if (!label) return { success: false, error: 'missing-label' };
+    const ref = await addDoc(collection(db, 'tables'), { label: String(label), createdAt: serverTimestamp() });
+    return { success: true, id: ref.id, table: { id: ref.id, label } };
+  } catch (err) {
+    console.error('saveTable error', err);
+    return { success: false, error: err };
+  }
+};
+
+// List tables (simple)
+window.FirebaseDB.listTables = async function({ limit: L = 200 } = {}) {
+  try {
+    const q = query(collection(db, 'tables'), orderBy('createdAt', 'desc'), limit(Math.min(Math.max(Number(L)||50, 1), 1000)));
+    const snap = await getDocs(q);
+    const rows = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    return { success: true, tables: rows };
+  } catch (err) {
+    console.error('listTables error', err);
+    return { success: false, error: err };
+  }
+};
+
+
+/* ----------------- RECIPIENTS (safe, paginated, Spark-friendly) ----------------- */
+
+/* ---------- Fix: expose period helper + correct listRecipientsPage (no shadowing) ---------- */
+
+function _periodToRangeMs(period) {
+  const now = new Date();
+  const d = new Date();
+  d.setHours(0,0,0,0);
+  if (period === 'today') return { startTs: d.getTime(), endTs: Date.now() };
+  if (period === 'week') { const day = d.getDay(); d.setDate(d.getDate() - day); return { startTs: d.getTime(), endTs: Date.now() }; }
+  if (period === 'month') { d.setDate(1); return { startTs: d.getTime(), endTs: Date.now() }; }
+  if (period === 'year')  { d.setMonth(0); d.setDate(1); return { startTs: d.getTime(), endTs: Date.now() }; }
+  return { startTs: 0, endTs: Date.now() };
+}
+// expose for admin.js fallback
+window._periodToRangeMs = _periodToRangeMs;
+
+window.FirebaseDB.listRecipientsPage = async function({ pageLimit = 12, startAfterId = null, period = 'today' } = {}) {
+  try {
+    // pageLimit does NOT shadow the Firestore limit() import
+    const PAGE = Math.min(Math.max(Number(pageLimit) || 12, 1), 200);
+    const collName = 'recipients';
+    const baseRef = collection(db, collName);
+
+    const { startTs, endTs } = _periodToRangeMs(period);
+    const startVal = (typeof Timestamp !== 'undefined' && Timestamp.fromMillis) ? Timestamp.fromMillis(startTs) : startTs;
+    const endVal = (typeof Timestamp !== 'undefined' && Timestamp.fromMillis) ? Timestamp.fromMillis(endTs) : endTs;
+
+    let q;
+    if (startAfterId) {
+      const startSnap = await getDoc(doc(db, collName, startAfterId));
+      if (!startSnap.exists()) {
+        q = query(baseRef, where('createdAt', '>=', startVal), where('createdAt', '<=', endVal), orderBy('createdAt', 'desc'), limit(PAGE));
+      } else {
+        q = query(baseRef, where('createdAt', '>=', startVal), where('createdAt', '<=', endVal), orderBy('createdAt', 'desc'), startAfter(startSnap), limit(PAGE));
+      }
+    } else {
+      q = query(baseRef, where('createdAt', '>=', startVal), where('createdAt', '<=', endVal), orderBy('createdAt', 'desc'), limit(PAGE));
+    }
+
+
+    const snap = await getDocs(q);
+// Ensure server doc id is used (in case the document also contains a field named "id")
+const docs = snap.docs.map(d => {
+  const data = d.data() || {};
+  return { ...data, id: d.id, _snap: d };
+});
+
+    const lastDoc = snap.docs[snap.docs.length - 1] || null;
+    const nextCursor = lastDoc ? lastDoc.id : null;
+    const finished = !nextCursor || snap.docs.length < PAGE;
+    return { success: true, recipients: docs, nextCursor, finished };
+  } catch (err) {
+    console.error('listRecipientsPage error', err);
+    return { success: false, error: err };
+  }
+};
+
+/** create recipient (supports custom id if payload.id provided) */
+window.FirebaseDB.createRecipient = async function(payload = {}) {
+  try {
+    const cleaned = stripUndefined(payload || {});
+    // ensure createdAt is set server-side
+    const docData = { ...cleaned, createdAt: serverTimestamp() };
+
+    // If caller provided an id, save using that id (setDoc). Otherwise addDoc (auto-id).
+    if (cleaned && cleaned.id) {
+      // use setDoc with the provided id so client id === doc id
+      const ref = doc(db, 'recipients', String(cleaned.id));
+      await setDoc(ref, docData);
+      return { success: true, id: ref.id };
+    } else {
+      const ref = await addDoc(collection(db, 'recipients'), docData);
+      return { success: true, id: ref.id };
+    }
+  } catch (err) {
+    console.error('createRecipient error', err);
+    return { success: false, error: err };
+  }
+};
+
+/** get single recipient */
+window.FirebaseDB.getRecipient = async function(id) {
+  try {
+    if (!id) return { success: false, error: 'missing-id' };
+    const snap = await getDoc(doc(db, 'recipients', id));
+    if (!snap.exists()) return { success: false, error: 'not-found' };
+    return { success: true, recipient: { id: snap.id, ...snap.data() } };
+  } catch (err) {
+    console.error('getRecipient error', err);
+    return { success: false, error: err };
+  }
+};
+
+/** update recipient */
+window.FirebaseDB.updateRecipient = async function(id, updates = {}) {
+  try {
+    if (!id) return { success: false, error: 'missing-id' };
+    await updateDoc(doc(db, 'recipients', id), stripUndefined({ ...updates, updatedAt: serverTimestamp() }));
+    return { success: true };
+  } catch (err) {
+    console.error('updateRecipient error', err);
+    return { success: false, error: err };
+  }
+};
+
+/* ----------------- Recipients: New UI + Add / Print Receipt (REPLACEMENT IIFE) ----------------- */
+
+/* ===== database.js (paste this into your database.js) ===== */
+
+/* Permanently delete a recipient document (graceful if not found) */
+window.FirebaseDB = window.FirebaseDB || {};
+
+window.FirebaseDB.deleteRecipient = async function(id, by = null) {
+  try {
+    if (!id) return { success: false, error: 'missing-id' };
+    const docRef = doc(db, 'recipients', id);
+    const snap = await getDoc(docRef);
+    if (!snap.exists()) {
+      console.warn('deleteRecipient: document not found (treated as removed):', id);
+      return { success: true, removed: false, reason: 'not-found' };
+    }
+    await deleteDoc(docRef);
+    return { success: true, removed: true };
+  } catch (err) {
+    console.error('deleteRecipient error', err);
+    return { success: false, error: err };
+  }
+};
+
+/* Keep softDeleteRecipient name for compatibility but forward to permanent delete */
+window.FirebaseDB.softDeleteRecipient = async function(id, by = null) {
+  return window.FirebaseDB.deleteRecipient(id, by);
+};
+
+
 // -------- Order tracking / payment helpers (add to window.FirebaseDB) ---------
 
 
