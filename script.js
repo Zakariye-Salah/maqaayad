@@ -2876,3 +2876,6 @@ displayMenuFoods(window.currentMenuCategory || 'all');
   
   
 
+// expose menu data for admin pages (receipts, exports, etc.)
+window.foodData = Array.isArray(foodData) ? foodData : [];
+window.__foodDataReady = true;
